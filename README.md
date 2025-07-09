@@ -64,18 +64,26 @@ git clone https://github.com/gm970191/NewsMind.git
 cd NewsMind
 ```
 
-2. **安装后端依赖**
+2. **配置环境变量**
+```bash
+# 复制环境变量模板
+cp backend/ENV_SETUP.md backend/.env
+# 编辑 .env 文件，设置您的 DeepSeek API 密钥
+# 详细配置说明请参考 backend/ENV_SETUP.md
+```
+
+3. **安装后端依赖**
 ```bash
 pip install -r requirements.txt
 ```
 
-3. **安装前端依赖**
+4. **安装前端依赖**
 ```bash
 cd frontend
 npm install
 ```
 
-4. **启动服务**
+5. **启动服务**
 ```bash
 # 启动后端服务
 python backend/start_server.py --mode simple

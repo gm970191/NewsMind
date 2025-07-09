@@ -21,8 +21,17 @@ class Settings(BaseSettings):
     # 数据库配置
     database_url: str = "sqlite:///./newsmind.db"
     
-    # DeepSeek API配置
-    deepseek_api_key: str = "sk-0fa209c8acfb4326890f8924846230ad"
+    # DeepSeek API配置 - 从环境变量读取
+    deepseek_api_key: str = ""
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+        # 字段名映射
+        fields = {
+            'deepseek_api_key': {'env': 'DEEPSEEK_API_KEY'},
+            'database_url': {'env': 'DATABASE_URL'},
+        }
     
     # 新闻采集配置
     max_articles_per_source: int = 20
@@ -35,10 +44,12 @@ class Settings(BaseSettings):
     # 日志配置
     log_file: str = "newsmind.log"
     log_level: str = "INFO"
-    
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # 验证必需的配置
+        if not self.deepseek_api_key:
+            raise ValueError("DEEPSEEK_API_KEY 环境变量未设置。请在 .env 文件中设置您的 API 密钥。")
 
 
 # 全局配置实例

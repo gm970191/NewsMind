@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文章调试页面</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .article { border: 1px solid #ddd; margin: 10px 0; padding: 10px; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>文章调试页面</h1>
+    
+    <div>
+        <h2>获取所有文章</h2>
+        <button onclick="fetchAllArticles()">获取文章列表</button>
+        <div id="articlesList"></div>
+    </div>
+    
+    <div>
+        <h2>测试特定文章ID</h2>
+        <input type="number" id="articleId" placeholder="输入文章ID" value="45">
+        <button onclick="testArticleId()">测试文章ID</button>
+        <div id="articleTest"></div>
+    </div>
+
+    <script>
+        async function fetchAllArticles() {
+            try {
+                const response = await fetch('/api/v1/news/articles?limit=50');
+                const data = await response.json();
+                
+                const articlesList = document.getElementById('articlesList');
+                articlesList.innerHTML = '<h3>文章列表：</h3>';
+                
+                data.articles.forEach(article => {
+                    const div = document.createElement('div');
+                    div.className = 'article';
+                    div.innerHTML = `
+                        <strong>ID: ${article.id}</strong><br>
+                        标题: ${article.title}<br>
+                        来源: ${article.source_name}<br>
+                        分类: ${article.category}<br>
+                        语言: ${article.language}
+                    `;
+                    articlesList.appendChild(div);
+                });
+            } catch (error) {
+                document.getElementById('articlesList').innerHTML = 
+                    `<div class="error">错误: ${error.message}</div>`;
+            }
+        }
+
+        async function testArticleId() {
+            const articleId = document.getElementById('articleId').value;
+            const articleTest = document.getElementById('articleTest');
+            
+            try {
+                const response = await fetch(`/api/v1/news/articles/${articleId}`);
+                
+                if (response.ok) {
+                    const article = await response.json();
+                    articleTest.innerHTML = `
+                        <div class="success">
+                            <h3>文章 ${articleId} 存在：</h3>
+                            <p><strong>标题:</strong> ${article.title}</p>
+                            <p><strong>来源:</strong> ${article.source_name}</p>
+                            <p><strong>语言:</strong> ${article.language}</p>
+                        </div>
+                    `;
+                } else {
+                    articleTest.innerHTML = `
+                        <div class="error">
+                            文章 ${articleId} 不存在 (状态码: ${response.status})
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                articleTest.innerHTML = `
+                    <div class="error">错误: ${error.message}</div>
+                `;
+            }
+        }
+
+        // 页面加载时自动获取文章列表
+        window.onload = fetchAllArticles;
+    </script>
+</body>
+</html> 

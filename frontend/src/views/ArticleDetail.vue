@@ -56,8 +56,12 @@
         <!-- 文章内容 -->
         <div class="prose prose-lg max-w-none mb-8">
           <div class="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 class="text-lg font-semibold mb-4">原文内容</h3>
-            <div class="text-gray-700 leading-relaxed whitespace-pre-wrap">{{ article.content }}</div>
+            <h3 class="text-lg font-semibold mb-4">
+              {{ article.language !== 'zh' && processedContent?.translation_zh ? '中文翻译' : '原文内容' }}
+            </h3>
+            <div class="text-gray-700 leading-relaxed whitespace-pre-wrap">
+              {{ article.language !== 'zh' && processedContent?.translation_zh ? processedContent.translation_zh : article.content }}
+            </div>
           </div>
         </div>
 
@@ -122,7 +126,24 @@
           </svg>
         </div>
         <h3 class="text-lg font-semibold text-gray-900 mb-2">文章未找到</h3>
-        <p class="text-gray-600">抱歉，无法找到指定的文章。</p>
+        <p class="text-gray-600 mb-6">
+          抱歉，无法找到ID为 <span class="font-mono bg-gray-100 px-2 py-1 rounded">{{ route.params.id }}</span> 的文章。
+          <br>该文章可能已被删除或ID不正确。
+        </p>
+        <div class="space-x-4">
+          <button 
+            @click="$router.push('/')" 
+            class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors"
+          >
+            返回首页
+          </button>
+          <button 
+            @click="loadArticle" 
+            class="bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700 transition-colors"
+          >
+            重新加载
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -148,17 +169,30 @@ export default {
       try {
         loading.value = true
         const articleId = parseInt(route.params.id)
-        const response = await fetch(`http://localhost:8000/api/v1/news/articles/${articleId}`)
+        
+        // 验证文章ID是否有效
+        if (isNaN(articleId) || articleId <= 0) {
+          console.error('Invalid article ID:', route.params.id)
+          article.value = null
+          return
+        }
+        
+        const response = await fetch(`/api/v1/news/articles/${articleId}`)
         
         if (response.ok) {
           const data = await response.json()
           article.value = data
           processedContent.value = data.processed_content
+        } else if (response.status === 404) {
+          console.error(`Article ${articleId} not found`)
+          article.value = null
         } else {
-          console.error('Failed to load article')
+          console.error('Failed to load article, status:', response.status)
+          article.value = null
         }
       } catch (error) {
         console.error('Error loading article:', error)
+        article.value = null
       } finally {
         loading.value = false
       }
@@ -168,7 +202,7 @@ export default {
       try {
         processing.value = true
         const articleId = parseInt(route.params.id)
-        const response = await fetch(`http://localhost:8000/api/v1/ai/process/${articleId}`, {
+        const response = await fetch(`/api/v1/ai/process/${articleId}`, {
           method: 'POST'
         })
         

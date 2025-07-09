@@ -18,7 +18,10 @@
         </el-tag>
       </div>
       <div class="time-info">
-        {{ formatTime(article.created_at) }}
+        <div class="date-info">
+          <span class="collect-date">收集: {{ formatDate(article.created_at) }}</span>
+          <span v-if="article.publish_time" class="publish-date">发布: {{ formatDate(article.publish_time) }}</span>
+        </div>
       </div>
     </div>
 
@@ -38,6 +41,11 @@
             <el-tab-pane label="英文摘要" name="en">
               <div class="summary-content">
                 {{ article.ai_processing.summary_en }}
+              </div>
+            </el-tab-pane>
+            <el-tab-pane v-if="article.ai_processing.translation_zh" label="中文翻译" name="translation">
+              <div class="summary-content">
+                {{ article.ai_processing.translation_zh }}
               </div>
             </el-tab-pane>
             <el-tab-pane label="原文" name="original">
@@ -102,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useNewsStore } from '../stores/news'
@@ -114,7 +122,7 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['click'])
+const emit = defineEmits(['click', 'refresh'])
 
 const router = useRouter()
 const newsStore = useNewsStore()
@@ -122,6 +130,18 @@ const newsStore = useNewsStore()
 // 响应式数据
 const activeTab = ref('zh')
 const processing = ref(false)
+
+// 监听文章变化，设置默认标签页
+watch(() => props.article, (newArticle) => {
+  if (newArticle) {
+    // 如果是非中文新闻且有翻译，默认显示翻译
+    if (newArticle.language !== 'zh' && newArticle.ai_processing?.translation_zh) {
+      activeTab.value = 'translation'
+    } else {
+      activeTab.value = 'zh'
+    }
+  }
+}, { immediate: true })
 
 // 计算属性
 const qualityScore = computed(() => {
@@ -154,6 +174,12 @@ const formatTime = (timeStr) => {
   return date.toLocaleDateString()
 }
 
+const formatDate = (timeStr) => {
+  if (!timeStr) return ''
+  const date = new Date(timeStr)
+  return date.toLocaleDateString()
+}
+
 const truncateContent = (content, maxLength = 150) => {
   if (!content) return ''
   return content.length > maxLength 
@@ -162,6 +188,11 @@ const truncateContent = (content, maxLength = 150) => {
 }
 
 const handleViewDetail = () => {
+  // 验证文章ID是否有效
+  if (!props.article.id || props.article.id <= 0) {
+    ElMessage.error('文章ID无效')
+    return
+  }
   router.push(`/article/${props.article.id}`)
 }
 
@@ -174,10 +205,18 @@ const handleViewOriginal = () => {
 const handleProcess = async () => {
   processing.value = true
   try {
-    await newsStore.processArticles(1)
-    ElMessage.success('AI处理完成')
-    // 刷新数据
-    await newsStore.fetchArticles()
+    // 调用单篇文章处理API
+    const response = await fetch(`/api/v1/ai/process/${props.article.id}`, {
+      method: 'POST'
+    })
+    
+    if (response.ok) {
+      ElMessage.success('AI处理完成')
+      // 触发父组件刷新数据
+      emit('refresh')
+    } else {
+      ElMessage.error('AI处理失败')
+    }
   } catch (error) {
     ElMessage.error('AI处理失败')
   } finally {
@@ -225,6 +264,26 @@ const handleProcess = async () => {
 
 .time-info {
   font-size: 11px;
+  color: #999;
+}
+
+.date-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.collect-date, .publish-date {
+  font-size: 10px;
+  color: #666;
+}
+
+.collect-date {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.publish-date {
   color: #999;
 }
 

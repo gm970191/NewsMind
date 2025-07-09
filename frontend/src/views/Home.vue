@@ -63,7 +63,7 @@
 
       <!-- 筛选和搜索 -->
       <el-row :gutter="20" class="filter-row">
-        <el-col :span="8">
+        <el-col :span="6">
           <el-select v-model="selectedCategory" placeholder="选择分类" clearable @change="handleCategoryChange">
             <el-option label="全部" value="" />
             <el-option label="国际新闻" value="国际新闻" />
@@ -72,13 +72,22 @@
             <el-option label="体育" value="体育" />
           </el-select>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="6">
+          <el-select v-model="selectedDate" placeholder="选择日期" @change="handleDateChange">
+            <el-option label="今日" value="today" />
+            <el-option label="昨日" value="yesterday" />
+            <el-option label="本周" value="week" />
+            <el-option label="本月" value="month" />
+            <el-option label="全部" value="" />
+          </el-select>
+        </el-col>
+        <el-col :span="6">
           <el-select v-model="showType" placeholder="显示类型" @change="handleShowTypeChange">
             <el-option label="全部文章" value="all" />
             <el-option label="已处理文章" value="processed" />
           </el-select>
         </el-col>
-        <el-col :span="8">
+        <el-col :span="6">
           <el-input
             v-model="searchKeyword"
             placeholder="搜索文章..."
@@ -104,6 +113,7 @@
             <NewsCard 
               :article="article" 
               @click="handleArticleClick(article)"
+              @refresh="refreshData"
             />
           </el-col>
         </el-row>
@@ -143,6 +153,7 @@ const newsStore = useNewsStore()
 
 // 响应式数据
 const selectedCategory = ref('')
+const selectedDate = ref('today')  // 默认显示今日新闻
 const showType = ref('all')
 const searchKeyword = ref('')
 const currentPage = ref(1)
@@ -197,6 +208,11 @@ const handleCategoryChange = async () => {
   await fetchArticles()
 }
 
+const handleDateChange = async () => {
+  currentPage.value = 1
+  await fetchArticles()
+}
+
 const handleShowTypeChange = async () => {
   currentPage.value = 1
   await fetchArticles()
@@ -221,6 +237,11 @@ const handleSearch = async () => {
 }
 
 const handleArticleClick = (article) => {
+  // 验证文章ID是否有效
+  if (!article.id || article.id <= 0) {
+    ElMessage.error('文章ID无效')
+    return
+  }
   router.push(`/article/${article.id}`)
 }
 
@@ -237,6 +258,10 @@ const fetchArticles = async (append = false) => {
   
   if (selectedCategory.value) {
     params.category = selectedCategory.value
+  }
+
+  if (selectedDate.value) {
+    params.date = selectedDate.value
   }
   
   // 如果是追加模式，添加append参数

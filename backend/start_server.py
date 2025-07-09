@@ -103,6 +103,7 @@ def start_simple_server():
                 limit = request.args.get('limit', 20, type=int)
                 category = request.args.get('category', None)
                 language = request.args.get('language', None)
+                date_filter = request.args.get('date', None)  # 新增日期筛选参数
                 
                 conn = sqlite3.connect(DB_PATH)
                 cursor = conn.cursor()
@@ -119,13 +120,37 @@ def start_simple_server():
                     where_conditions.append("language = ?")
                     params.append(language)
                 
+                # 添加日期筛选
+                if date_filter:
+                    if date_filter == 'today':
+                        # 筛选今日新闻
+                        where_conditions.append("DATE(created_at) = DATE('now')")
+                    elif date_filter == 'yesterday':
+                        # 筛选昨日新闻
+                        where_conditions.append("DATE(created_at) = DATE('now', '-1 day')")
+                    elif date_filter == 'week':
+                        # 筛选本周新闻
+                        where_conditions.append("DATE(created_at) >= DATE('now', '-7 days')")
+                    elif date_filter == 'month':
+                        # 筛选本月新闻
+                        where_conditions.append("DATE(created_at) >= DATE('now', '-30 days')")
+                    else:
+                        # 自定义日期格式 YYYY-MM-DD
+                        try:
+                            from datetime import datetime
+                            datetime.strptime(date_filter, '%Y-%m-%d')
+                            where_conditions.append("DATE(created_at) = ?")
+                            params.append(date_filter)
+                        except ValueError:
+                            pass  # 忽略无效日期格式
+                
                 where_clause = ""
                 if where_conditions:
                     where_clause = "WHERE " + " AND ".join(where_conditions)
                 
                 # 执行查询
                 query = f"""
-                    SELECT id, title, content, source_name, publish_time, category, language
+                    SELECT id, title, content, source_name, publish_time, category, language, created_at
                     FROM news_articles 
                     {where_clause}
                     ORDER BY created_at DESC 
@@ -143,7 +168,8 @@ def start_simple_server():
                         "source_name": row[3],
                         "publish_time": row[4],
                         "category": row[5],
-                        "language": row[6]
+                        "language": row[6],
+                        "created_at": row[7]
                     })
                 conn.close()
                 return jsonify({"articles": articles, "total": len(articles)})
@@ -200,6 +226,171 @@ def start_simple_server():
                     })
                 conn.close()
                 return jsonify({"articles": articles, "total": len(articles)})
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        
+        @app.route('/api/v1/news/articles/<int:article_id>')
+        def get_article(article_id):
+            """获取单篇文章详情"""
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, title, content, source_url, source_name, publish_time, 
+                           category, language, quality_score, is_processed, created_at
+                    FROM news_articles 
+                    WHERE id = ?
+                """, (article_id,))
+                
+                row = cursor.fetchone()
+                if not row:
+                    conn.close()
+                    return jsonify({"error": "Article not found"}), 404
+                
+                article = {
+                    "id": row[0],
+                    "title": row[1],
+                    "content": row[2],
+                    "source_url": row[3],
+                    "source_name": row[4],
+                    "publish_time": row[5],
+                    "category": row[6],
+                    "language": row[7],
+                    "quality_score": row[8],
+                    "is_processed": bool(row[9]),
+                    "created_at": row[10]
+                }
+                
+                # 获取处理结果（如果存在）
+                cursor.execute("""
+                    SELECT summary_zh, summary_en, translation_zh, quality_score, processing_time
+                    FROM processed_content 
+                    WHERE article_id = ?
+                """, (article_id,))
+                
+                processed_row = cursor.fetchone()
+                if processed_row:
+                    article["processed_content"] = {
+                        "summary_zh": processed_row[0],
+                        "summary_en": processed_row[1],
+                        "translation_zh": processed_row[2],
+                        "quality_score": processed_row[3],
+                        "processing_time": processed_row[4]
+                    }
+                else:
+                    article["processed_content"] = None
+                
+                conn.close()
+                return jsonify(article)
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        
+        @app.route('/api/v1/ai/process/<int:article_id>', methods=['POST'])
+        def process_article(article_id):
+            """处理单篇文章"""
+            try:
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                
+                # 检查文章是否存在
+                cursor.execute("SELECT id, title, content, language FROM news_articles WHERE id = ?", (article_id,))
+                row = cursor.fetchone()
+                if not row:
+                    conn.close()
+                    return jsonify({"error": "Article not found"}), 404
+                
+                # 模拟AI处理（简化模式）
+                article_id, title, content, language = row
+                
+                # 生成简单的摘要和翻译
+                summary_zh = f"这是文章《{title}》的中文摘要。"
+                summary_en = f"This is the English summary of article '{title}'."
+                translation_zh = None
+                if language == 'en':
+                    translation_zh = f"这是文章《{title}》的中文翻译。"
+                
+                # 保存处理结果
+                cursor.execute("""
+                    INSERT OR REPLACE INTO processed_content 
+                    (article_id, summary_zh, summary_en, translation_zh, quality_score, processing_time)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (article_id, summary_zh, summary_en, translation_zh, 7.5, 2.0))
+                
+                # 更新文章处理状态
+                cursor.execute("UPDATE news_articles SET is_processed = 1 WHERE id = ?", (article_id,))
+                
+                conn.commit()
+                conn.close()
+                
+                return jsonify({
+                    "message": f"Article {article_id} processed successfully",
+                    "results": {
+                        "success_count": 1,
+                        "error_count": 0
+                    }
+                })
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+        
+        @app.route('/api/v1/ai/process', methods=['POST'])
+        def process_articles():
+            """批量处理文章"""
+            try:
+                from flask import request
+                limit = request.args.get('limit', 5, type=int)
+                
+                conn = sqlite3.connect(DB_PATH)
+                cursor = conn.cursor()
+                
+                # 获取未处理的文章
+                cursor.execute("""
+                    SELECT id, title, content, language 
+                    FROM news_articles 
+                    WHERE is_processed = 0 
+                    ORDER BY created_at DESC 
+                    LIMIT ?
+                """, (limit,))
+                
+                articles = cursor.fetchall()
+                success_count = 0
+                error_count = 0
+                
+                for article_id, title, content, language in articles:
+                    try:
+                        # 模拟AI处理
+                        summary_zh = f"这是文章《{title}》的中文摘要。"
+                        summary_en = f"This is the English summary of article '{title}'."
+                        translation_zh = None
+                        if language == 'en':
+                            translation_zh = f"这是文章《{title}》的中文翻译。"
+                        
+                        # 保存处理结果
+                        cursor.execute("""
+                            INSERT OR REPLACE INTO processed_content 
+                            (article_id, summary_zh, summary_en, translation_zh, quality_score, processing_time)
+                            VALUES (?, ?, ?, ?, ?, ?)
+                        """, (article_id, summary_zh, summary_en, translation_zh, 7.5, 2.0))
+                        
+                        # 更新文章处理状态
+                        cursor.execute("UPDATE news_articles SET is_processed = 1 WHERE id = ?", (article_id,))
+                        
+                        success_count += 1
+                    except Exception as e:
+                        error_count += 1
+                        print(f"Error processing article {article_id}: {e}")
+                
+                conn.commit()
+                conn.close()
+                
+                return jsonify({
+                    "message": "AI processing completed",
+                    "results": {
+                        "total_articles": len(articles),
+                        "success_count": success_count,
+                        "error_count": error_count
+                    }
+                })
             except Exception as e:
                 return jsonify({"error": str(e)}), 500
         
