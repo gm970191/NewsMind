@@ -44,6 +44,15 @@ class NewsScheduler:
                 name='Data Cleanup Job',
                 replace_existing=True
             )
+
+            # 添加AI处理定时任务（每10分钟）
+            self.scheduler.add_job(
+                func=self._ai_process_job,
+                trigger=IntervalTrigger(minutes=10),
+                id='ai_process',
+                name='AI Process Job',
+                replace_existing=True
+            )
             
             # 启动调度器
             self.scheduler.start()
@@ -99,6 +108,24 @@ class NewsScheduler:
         except Exception as e:
             logger.error(f"Error in data cleanup job: {e}")
             self._log_job_result('cleanup', {'error': str(e)})
+        finally:
+            if 'db' in locals():
+                db.close()
+
+    async def _ai_process_job(self):
+        """AI处理任务：每10分钟处理未处理新闻"""
+        logger.info("Starting AI process job (定时AI处理未处理新闻)")
+        try:
+            db = SessionLocal()
+            repo = NewsRepository(db)
+            from app.services.ai_processor import AIProcessor
+            processor = AIProcessor(repo)
+            results = await processor.process_articles(limit=10)  # 每次最多处理10篇，可根据需要调整
+            logger.info(f"AI process completed: {results}")
+            self._log_job_result('ai_process', results)
+        except Exception as e:
+            logger.error(f"Error in AI process job: {e}")
+            self._log_job_result('ai_process', {'error': str(e)})
         finally:
             if 'db' in locals():
                 db.close()

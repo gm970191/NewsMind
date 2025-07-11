@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-改进的新闻采集测试脚本
-用于测试真实新闻源的采集和内容获取
+改进的内容爬虫脚本
+专门用于抓取有完整内容的新闻
 """
 import sys
 import asyncio
@@ -18,16 +18,16 @@ from app.services.crawler import WebCrawler
 from app.models.news import NewsSource
 
 
-async def test_real_news_crawling():
-    """测试真实新闻采集"""
-    print("🔍 测试真实新闻采集...")
+async def crawl_with_full_content():
+    """抓取有完整内容的新闻"""
+    print("🔍 开始抓取有完整内容的新闻...")
     
     db = SessionLocal()
     repo = NewsRepository(db)
     
     try:
-        # 创建一些真实的新闻源进行测试
-        test_sources = [
+        # 创建一些高质量新闻源
+        quality_sources = [
             {
                 'name': 'BBC News',
                 'url': 'https://www.bbc.com/news',
@@ -51,11 +51,19 @@ async def test_real_news_crawling():
                 'category': '科技',
                 'weight': 1.0,
                 'is_active': True
+            },
+            {
+                'name': 'CNN',
+                'url': 'https://www.cnn.com',
+                'type': 'web',
+                'category': '国际',
+                'weight': 1.0,
+                'is_active': True
             }
         ]
         
-        # 添加测试新闻源
-        for source_data in test_sources:
+        # 添加高质量新闻源
+        for source_data in quality_sources:
             try:
                 # 检查是否已存在
                 existing = repo.get_source_by_url(source_data['url'])
@@ -67,8 +75,8 @@ async def test_real_news_crawling():
             except Exception as e:
                 print(f"✗ 添加新闻源失败: {e}")
         
-        # 测试新闻采集
-        print("\n🚀 开始新闻采集测试...")
+        # 使用改进的爬虫抓取新闻
+        print("\n🚀 开始新闻采集...")
         async with WebCrawler(repo) as crawler:
             results = await crawler.crawl_news_sources()
             
@@ -78,76 +86,49 @@ async def test_real_news_crawling():
             print(f"   失败: {results['error_count']}")
             print(f"   新文章: {results['new_articles']}")
         
-        # 显示采集到的文章
-        print("\n📰 采集到的文章:")
-        articles = repo.get_articles(limit=10)
+        # 显示采集到的文章详情
+        print("\n📰 采集到的文章详情:")
+        articles = repo.get_articles(limit=20, order_by='created_at DESC')
         for article in articles:
-            content_preview = article.original_content[:100] + "..." if len(article.original_content) > 100 else article.original_content
+            content_length = len(article.original_content) if article.original_content else 0
             print(f"   ID: {article.id}")
             print(f"   标题: {article.original_title}")
             print(f"   来源: {article.source_name}")
-            print(f"   链接: {article.source_url}")
-            print(f"   内容预览: {content_preview}")
-            print(f"   内容长度: {len(article.original_content)} 字符")
+            print(f"   内容长度: {content_length} 字符")
+            if content_length > 0:
+                content_preview = article.original_content[:100] + "..." if content_length > 100 else article.original_content
+                print(f"   内容预览: {content_preview}")
+            else:
+                print(f"   内容预览: [无内容]")
             print("-" * 50)
         
+        # 统计内容长度分布
+        print("\n📈 内容长度统计:")
+        short_articles = [a for a in articles if len(a.original_content or '') < 100]
+        medium_articles = [a for a in articles if 100 <= len(a.original_content or '') < 500]
+        long_articles = [a for a in articles if len(a.original_content or '') >= 500]
+        
+        print(f"   短文章 (<100字符): {len(short_articles)} 篇")
+        print(f"   中等文章 (100-500字符): {len(medium_articles)} 篇")
+        print(f"   长文章 (≥500字符): {len(long_articles)} 篇")
+        
     except Exception as e:
-        print(f"❌ 测试失败: {e}")
-    finally:
-        db.close()
-
-
-async def test_content_extraction():
-    """测试内容提取功能"""
-    print("\n🔍 测试内容提取功能...")
-    
-    # 测试URL列表
-    test_urls = [
-        'https://www.bbc.com/news/world-us-canada-68835600',
-        'https://techcrunch.com/2024/01/15/ai-startup-funding-2024/',
-        'https://www.reuters.com/technology/ai-regulation-2024-01-15/'
-    ]
-    
-    db = SessionLocal()
-    repo = NewsRepository(db)
-    
-    try:
-        async with WebCrawler(repo) as crawler:
-            for url in test_urls:
-                print(f"\n🔗 测试URL: {url}")
-                try:
-                    content = await crawler._get_full_content(url)
-                    if content:
-                        print(f"   ✓ 成功提取内容")
-                        print(f"   内容长度: {len(content)} 字符")
-                        print(f"   内容预览: {content[:200]}...")
-                    else:
-                        print(f"   ✗ 提取失败")
-                except Exception as e:
-                    print(f"   ✗ 提取错误: {e}")
-    
-    except Exception as e:
-        print(f"❌ 内容提取测试失败: {e}")
+        print(f"❌ 抓取失败: {e}")
+        import traceback
+        traceback.print_exc()
     finally:
         db.close()
 
 
 def main():
     """主函数"""
-    print("🚀 改进的新闻采集测试")
+    print("🚀 改进的内容爬虫")
     print("=" * 50)
     
-    # 检查环境
-    if os.environ.get('DISABLE_PLAYWRIGHT') == '1':
-        print("⚠️  Playwright已禁用，将使用简化模式")
-    else:
-        print("✅ Playwright可用，将使用完整模式")
+    # 运行抓取
+    asyncio.run(crawl_with_full_content())
     
-    # 运行测试
-    asyncio.run(test_real_news_crawling())
-    asyncio.run(test_content_extraction())
-    
-    print("\n✅ 测试完成！")
+    print("\n✅ 抓取完成！")
 
 
 if __name__ == "__main__":

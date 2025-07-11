@@ -36,6 +36,8 @@ class WebCrawler:
         self.repo = repo
         self.browser: Optional[Browser] = None
         self.page: Optional[Page] = None
+        # 初始化playwright可用性状态
+        self._playwright_available = PLAYWRIGHT_AVAILABLE
     
     async def __aenter__(self):
         """异步上下文管理器入口"""
@@ -72,9 +74,12 @@ class WebCrawler:
             await self.page.set_extra_http_headers({
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
             })
+            # 设置实例变量表示playwright可用
+            self._playwright_available = True
         except Exception as e:
             logger.error(f"Failed to start browser: {e}")
-            PLAYWRIGHT_AVAILABLE = False
+            # 不要在这里修改全局变量，而是设置一个实例变量
+            self._playwright_available = False
     
     async def close_browser(self):
         """关闭浏览器"""
@@ -130,15 +135,17 @@ class WebCrawler:
     async def crawl_web_source(self, source: NewsSource) -> List[Dict[str, Any]]:
         """抓取网页新闻源"""
         try:
-            if not PLAYWRIGHT_AVAILABLE or not self.page:
+            # 使用实例变量检查playwright是否可用
+            playwright_available = getattr(self, '_playwright_available', PLAYWRIGHT_AVAILABLE)
+            if not playwright_available or not self.page:
                 # 使用requests作为备选方案
                 logger.info(f"Using requests for web crawling: {source.url}")
-                response = requests.get(source.url, timeout=30)
+                response = requests.get(source.url, timeout=60)  # 增加超时时间
                 response.raise_for_status()
                 soup = BeautifulSoup(response.content, 'html.parser')
             else:
                 # 使用playwright
-                await self.page.goto(source.url, wait_until='networkidle', timeout=30000)
+                await self.page.goto(source.url, wait_until='networkidle', timeout=60000)  # 增加超时时间到60秒
                 content = await self.page.content()
                 soup = BeautifulSoup(content, 'html.parser')
             
@@ -161,17 +168,23 @@ class WebCrawler:
             
             # 为每个文章获取完整内容
             for article in articles:
-                if article.get('source_url') and not article.get('content'):
+                if article.get('source_url') and not article.get('original_content'):
                     try:
-                        full_content = await self._get_full_content(article['source_url'])
-                        if full_content:
-                            article['content'] = full_content
+                        # 只有在playwright可用时才尝试获取完整内容
+                        playwright_available = getattr(self, '_playwright_available', PLAYWRIGHT_AVAILABLE)
+                        if playwright_available and self.page:
+                            full_content = await self._get_full_content(article['source_url'])
+                            if full_content:
+                                article['original_content'] = full_content
+                            else:
+                                # 如果获取失败，使用标题作为内容
+                                article['original_content'] = article['original_title']
                         else:
-                            # 如果获取失败，使用标题作为内容
-                            article['content'] = article['title']
+                            # 如果playwright不可用，使用标题作为内容
+                            article['original_content'] = article['original_title']
                     except Exception as e:
                         logger.warning(f"Failed to get full content for {article['source_url']}: {e}")
-                        article['content'] = article['title']
+                        article['original_content'] = article['original_title']
             
             return articles[:settings.max_articles_per_source]
             
@@ -189,22 +202,25 @@ class WebCrawler:
             for entry in feed.entries[:settings.max_articles_per_source]:
                 try:
                     article_data = {
-                        'title': entry.get('title', ''),
-                        'content': entry.get('summary', ''),
+                        'original_title': entry.get('title', ''),
+                        'original_content': entry.get('summary', ''),
                         'source_url': entry.get('link', ''),
                         'source_id': source.id,
                         'source_name': source.name,
                         'publish_time': self._parse_rss_date(entry.get('published')),
                         'category': source.category,
-                        'language': 'en'  # 默认英文
+                        'original_language': 'en'  # 默认英文
                     }
                     
                     # 如果内容为空，尝试获取完整内容
-                    if not article_data['content'] and entry.get('link'):
+                    if not article_data['original_content'] and entry.get('link'):
                         try:
-                            full_content = await self._get_full_content(entry.get('link'))
-                            if full_content:
-                                article_data['content'] = full_content
+                            # 只有在playwright可用时才尝试获取完整内容
+                            playwright_available = getattr(self, '_playwright_available', PLAYWRIGHT_AVAILABLE)
+                            if playwright_available and self.page:
+                                full_content = await self._get_full_content(entry.get('link'))
+                                if full_content:
+                                    article_data['original_content'] = full_content
                         except Exception as e:
                             logger.warning(f"Failed to get full content for {entry.get('link')}: {e}")
                     
@@ -223,7 +239,7 @@ class WebCrawler:
     async def _get_full_content(self, url: str) -> Optional[str]:
         """获取完整内容"""
         try:
-            await self.page.goto(url, wait_until='networkidle', timeout=15000)
+            await self.page.goto(url, wait_until='networkidle', timeout=30000)  # 增加超时时间到30秒
             content = await self.page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
@@ -310,13 +326,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',  # 稍后获取完整内容
+                    'original_title': title,
+                    'original_content': '',  # 稍后获取完整内容
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)
@@ -345,13 +361,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',
+                    'original_title': title,
+                    'original_content': '',
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)
@@ -380,13 +396,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',
+                    'original_title': title,
+                    'original_content': '',
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)
@@ -415,13 +431,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',
+                    'original_title': title,
+                    'original_content': '',
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)
@@ -450,13 +466,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',
+                    'original_title': title,
+                    'original_content': '',
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)
@@ -485,13 +501,13 @@ class WebCrawler:
                     continue
                 
                 article_data = {
-                    'title': title,
-                    'content': '',
+                    'original_title': title,
+                    'original_content': '',
                     'source_url': href,
                     'source_id': source.id,
                     'source_name': source.name,
                     'category': source.category,
-                    'language': 'en'
+                    'original_language': 'en'
                 }
                 
                 articles.append(article_data)

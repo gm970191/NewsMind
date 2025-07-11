@@ -13,16 +13,15 @@
         </div>
       </div>
       <el-divider></el-divider>
-      <div v-if="article.processed_content">
-        <div class="section">
+      <div v-if="article.summary_zh || article.detailed_summary_zh">
+        <div v-if="article.summary_zh" class="section">
           <h3>中文概要</h3>
-          <p class="summary">{{ article.processed_content.summary_zh }}</p>
+          <p class="summary">{{ article.summary_zh }}</p>
         </div>
-        <el-divider></el-divider>
-        <div class="section">
-          <h3>正文总结（最多10000字）</h3>
+        <div v-if="article.detailed_summary_zh" class="section">
+          <h3>正文总结</h3>
           <div class="detailed-summary">
-            <div class="content-text markdown-content" v-html="renderMarkdown(article.processed_content.detailed_summary_zh)"></div>
+            <div class="content-text markdown-content" v-html="renderMarkdown(article.detailed_summary_zh)"></div>
           </div>
         </div>
       </div>
@@ -85,7 +84,7 @@ export default {
     const processArticle = async () => {
       try {
         ElMessage.info('正在AI处理中，请稍候...');
-        const response = await axios.post(`/api/v1/ai/process-button/${route.params.id}`);
+        const response = await axios.post(`/api/v1/ai/process/${route.params.id}`);
         console.log('AI处理响应:', response.data);
         ElMessage.success(response.data.message || 'AI处理已完成！');
         await fetchArticle(); // 重新获取文章数据

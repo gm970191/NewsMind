@@ -32,9 +32,9 @@
         <span v-if="article.original_language !== 'zh' && article.original_title && article.translated_title" class="origin-title" style="font-size:13px;color:#888;margin-left:6px;">（{{ article.original_title }}）</span>
       </h3>
       <!-- 显示中文概要或原文预览 -->
-      <div v-if="article.processed_content && article.processed_content.summary_zh" class="summary-section">
+      <div v-if="article.summary_zh" class="summary-section">
         <div class="summary-content">
-          {{ article.processed_content.summary_zh }}
+          {{ article.summary_zh }}
         </div>
       </div>
       <!-- 未处理文章显示原文预览 -->
@@ -45,7 +45,7 @@
       </div>
       
       <!-- 质量评分 -->
-      <div v-if="(article.processed_content && article.processed_content.quality_score) || article.translation_quality_score" class="quality-score">
+      <div v-if="article.quality_score" class="quality-score">
         <el-rate 
           :model-value="qualityScore" 
           disabled 
@@ -134,11 +134,8 @@ watch(() => props.article, (newArticle) => {
 
 // 计算属性
 const qualityScore = computed(() => {
-  if (props.article.processed_content?.quality_score) {
-    return props.article.processed_content.quality_score / 2 // 转换为5分制
-  }
-  if (props.article.translation_quality_score) {
-    return props.article.translation_quality_score / 2 // 转换为5分制
+  if (props.article.quality_score) {
+    return props.article.quality_score / 2 // 转换为5分制
   }
   return 0
 })

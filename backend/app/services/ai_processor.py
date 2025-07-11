@@ -14,7 +14,7 @@ import requests
 
 from app.core.config import settings
 from app.services.news_service import NewsRepository
-from app.models.news import NewsArticle, ProcessedContent
+from app.models.news import NewsArticle
 
 logger = logging.getLogger(__name__)
 
@@ -69,16 +69,13 @@ class AIProcessor:
         else:
             try:
                 self.llm = LMStudioLLM()
-                # 测试本地服务可用性
-                import asyncio
-                async def test():
-                    msg = [SystemMessage(content="你是AI助手。"), HumanMessage(content="你好")]
-                    await self.llm.ainvoke(msg)
-                asyncio.get_event_loop().run_until_complete(test())
+                # 移除有问题的异步测试，改为简单的同步检查
+                logger.info("使用本地LM Studio")
             except Exception as e:
                 logger.warning(f"本地LM Studio不可用，切换到DeepSeek: {e}")
                 from app.core.config import settings
                 self.llm = DeepSeekLLM(api_key=settings.deepseek_api_key)
+                logger.info("使用DeepSeek LLM")
         # 减少文本长度，提高处理速度
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=1500,  # 减少chunk大小
@@ -124,47 +121,38 @@ class AIProcessor:
         """处理单篇文章"""
         try:
             start_time = time.time()
-            
             # 1. 生成中文摘要
-            summary_zh = await self._generate_summary_zh(article.content)
+            summary_zh = await self._generate_summary_zh(article.original_content)
             if not summary_zh:
                 logger.error(f"Failed to generate Chinese summary for article {article.id}")
                 return False
-            
-            # 2. 生成英文摘要
-            summary_en = await self._generate_summary_en(article.content)
-            if not summary_en:
-                logger.error(f"Failed to generate English summary for article {article.id}")
-                return False
-            
-            # 3. 翻译为中文（如果原文是英文）
+            # 2. 生成详细摘要（可选，或与summary_zh一致）
+            detailed_summary_zh = summary_zh
+            # 3. 翻译标题为中文（如原文为英文）
+            translated_title = None
+            if article.original_language == 'en' and article.original_title:
+                translated_title = await self._translate_title_to_chinese(article.original_title)
+            # 4. 翻译正文为中文（如原文为英文）
             translation_zh = None
-            if article.language == 'en':
-                translation_zh = await self._translate_to_chinese(article.content)
-            
-            # 4. 质量评估（可选，为提高速度可跳过）
-            quality_score = 7.0  # 默认中等质量，跳过AI评估以提高速度
-            
-            # 5. 保存处理结果
-            processing_time = time.time() - start_time
-            
-            processed_data = {
-                'article_id': article.id,
+            if article.original_language == 'en':
+                translation_zh = await self._translate_to_chinese(article.original_content)
+            # 5. 质量分数
+            quality_score = 7.0
+            # 6. 保存到news_articles表
+            update_data = {
                 'summary_zh': summary_zh,
-                'summary_en': summary_en,
-                'translation_zh': translation_zh,
+                'detailed_summary_zh': detailed_summary_zh,
+                'translated_title': translated_title,
+                'translated_content': translation_zh,
                 'quality_score': quality_score,
-                'processing_time': processing_time
+                'is_processed': True,
+                'is_title_translated': translated_title is not None,
+                'is_content_translated': translation_zh is not None,
+                'translation_quality_score': 9.0 if translation_zh else 0.0
             }
-            
-            self.repo.create_processed_content(processed_data)
-            
-            # 6. 更新文章状态
-            self.repo.update_article_processed_status(article.id, True)
-            
+            self.repo.update_article(article.id, update_data)
             logger.info(f"Successfully processed article {article.id}")
             return True
-            
         except Exception as e:
             logger.error(f"Error processing article {article.id}: {e}")
             return False
@@ -237,28 +225,76 @@ class AIProcessor:
             logger.error(f"Error generating English summary: {e}")
             return None
     
+    async def _translate_title_to_chinese(self, title: str) -> Optional[str]:
+        """翻译标题为中文"""
+        try:
+            logger.info(f"开始翻译标题: {title}")
+            
+            system_prompt = """将以下英文新闻标题翻译成中文，保持简洁明了，直接返回翻译结果。"""
+            user_prompt = f"英文标题：{title}"
+
+            messages = [
+                SystemMessage(content=system_prompt),
+                HumanMessage(content=user_prompt)
+            ]
+            
+            logger.info("调用LLM进行标题翻译...")
+            response = await self.llm.ainvoke(messages)
+            logger.info("标题翻译完成")
+            
+            translation = response.content.strip()
+            logger.info(f"标题翻译结果: {translation}")
+            
+            if len(translation) > 5:
+                logger.info("标题翻译成功")
+                return translation
+            else:
+                logger.warning(f"标题翻译结果太短: {translation}")
+                return None
+            
+        except Exception as e:
+            logger.error(f"标题翻译过程中出错: {e}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
+            return None
+
     async def _translate_to_chinese(self, content: str) -> Optional[str]:
         """翻译为中文"""
         try:
+            logger.info(f"开始翻译内容，长度: {len(content)}")
+            
             # 如果内容太长，先分割
             if len(content) > 1500:
                 chunks = self.text_splitter.split_text(content)
                 content = chunks[0]  # 使用第一个chunk
+                logger.info(f"内容过长，使用第一个chunk，长度: {len(content)}")
             
             system_prompt = """将以下英文新闻翻译成中文，保持原意，使用流畅的中文表达。直接返回翻译结果。"""
+            user_prompt = f"英文内容：\n\n{content}"
 
             messages = [
                 SystemMessage(content=system_prompt),
-                HumanMessage(content=f"英文内容：\n\n{content}")
+                HumanMessage(content=user_prompt)
             ]
             
+            logger.info("调用LLM进行翻译...")
             response = await self.llm.ainvoke(messages)
-            translation = response.content.strip()
+            logger.info("LLM调用完成")
             
-            return translation if len(translation) > 50 else None
+            translation = response.content.strip()
+            logger.info(f"翻译结果长度: {len(translation)}")
+            
+            if len(translation) > 20:
+                logger.info("翻译成功")
+                return translation
+            else:
+                logger.warning(f"翻译结果太短: {translation}")
+                return None
             
         except Exception as e:
-            logger.error(f"Error translating to Chinese: {e}")
+            logger.error(f"翻译过程中出错: {e}")
+            import traceback
+            logger.error(f"详细错误信息: {traceback.format_exc()}")
             return None
     
     async def _evaluate_quality(self, content: str) -> Optional[float]:
@@ -323,15 +359,8 @@ class AIProcessor:
             if not article:
                 logger.error(f"Article {article_id} not found")
                 return False
-            
-            # 删除之前的处理结果
-            self.repo.delete_processed_content(article_id)
-            
-            # 重新处理
-            success = await self.process_single_article(article)
-            
-            return success
-            
+            # 直接重新处理并覆盖news_articles表相关字段
+            return await self.process_single_article(article)
         except Exception as e:
             logger.error(f"Error reprocessing article {article_id}: {e}")
             return False

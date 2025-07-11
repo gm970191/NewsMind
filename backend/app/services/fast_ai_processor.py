@@ -78,39 +78,26 @@ class FastAIProcessor:
         """快速处理单篇文章"""
         try:
             start_time = time.time()
-            
             # 1. 快速生成中文摘要
             summary_zh = await self._generate_summary_fast(article.content, "zh")
             if not summary_zh:
                 return False
-            
-            # 2. 快速生成英文摘要
-            summary_en = await self._generate_summary_fast(article.content, "en")
-            if not summary_zh:
-                return False
-            
-            # 3. 快速翻译（仅英文文章）
+            # 2. 快速生成详细摘要（可选，或与summary_zh一致）
+            detailed_summary_zh = summary_zh
+            # 3. 快速翻译（仅英文）
             translation_zh = None
             if article.language == 'en':
                 translation_zh = await self._translate_fast(article.content)
-            
-            # 4. 保存结果
-            processing_time = time.time() - start_time
-            
-            processed_data = {
-                'article_id': article.id,
+            # 4. 保存到news_articles表
+            update_data = {
                 'summary_zh': summary_zh,
-                'summary_en': summary_en,
-                'translation_zh': translation_zh,
-                'quality_score': 7.0,  # 默认质量
-                'processing_time': processing_time
+                'detailed_summary_zh': detailed_summary_zh,
+                'translated_content': translation_zh,
+                'quality_score': 7.0,
+                'is_processed': True
             }
-            
-            self.repo.create_processed_content(processed_data)
-            self.repo.update_article_processed_status(article.id, True)
-            
+            self.repo.update_article(article.id, update_data)
             return True
-            
         except Exception as e:
             logger.error(f"快速处理文章 {article.id} 出错: {e}")
             return False

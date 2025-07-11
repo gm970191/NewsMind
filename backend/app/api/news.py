@@ -51,6 +51,8 @@ async def get_articles(
                     "display_title": article.translated_title if article.translated_title else article.original_title,
                     "original_content": article.original_content[:200] + "..." if len(article.original_content) > 200 else article.original_content,
                     "translated_content": article.translated_content[:200] + "..." if article.translated_content and len(article.translated_content) > 200 else article.translated_content,
+                    "summary_zh": article.summary_zh,
+                    "detailed_summary_zh": article.detailed_summary_zh,
                     "source_url": article.source_url,
                     "source_name": article.source_name,
                     "publish_time": article.publish_time,
@@ -84,9 +86,6 @@ async def get_article(article_id: int):
         if not article:
             raise HTTPException(status_code=404, detail="Article not found")
         
-        # 获取处理结果
-        processed_content = repo.get_processed_content(article_id)
-        
         return {
             "id": article.id,
             "original_title": article.original_title,
@@ -94,6 +93,8 @@ async def get_article(article_id: int):
             "display_title": article.translated_title if article.translated_title else article.original_title,
             "original_content": article.original_content,
             "translated_content": article.translated_content,
+            "summary_zh": article.summary_zh,
+            "detailed_summary_zh": article.detailed_summary_zh,
             "source_url": article.source_url,
             "source_name": article.source_name,
             "publish_time": article.publish_time,
@@ -104,14 +105,7 @@ async def get_article(article_id: int):
             "translation_quality_score": article.translation_quality_score,
             "quality_score": article.quality_score,
             "is_processed": article.is_processed,
-            "created_at": article.created_at,
-            "processed_content": {
-                "summary_zh": processed_content.summary_zh if processed_content else None,
-                "detailed_summary_zh": processed_content.detailed_summary_zh if processed_content else None,
-                "summary_en": processed_content.summary_en if processed_content else None,
-                "quality_score": processed_content.quality_score if processed_content else None,
-                "processing_time": processed_content.processing_time if processed_content else None
-            } if processed_content else None
+            "created_at": article.created_at
         }
     finally:
         db.close()

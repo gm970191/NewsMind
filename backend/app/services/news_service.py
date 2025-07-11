@@ -7,7 +7,7 @@ from typing import List, Optional, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import desc, asc, and_, or_, func
 
-from app.models.news import NewsArticle, NewsSource, ProcessedContent
+from app.models.news import NewsArticle, NewsSource
 from app.core.config import settings
 
 
@@ -181,80 +181,9 @@ class NewsRepository:
             )
         ).order_by(desc(NewsArticle.created_at)).limit(limit).all()
     
-    # ProcessedContent operations
-    def create_processed_content(self, content_data: Dict[str, Any]) -> ProcessedContent:
-        """创建处理结果"""
-        content = ProcessedContent(**content_data)
-        self.db.add(content)
-        self.db.commit()
-        self.db.refresh(content)
-        return content
-    
-    def get_processed_content(self, article_id: int) -> Optional[ProcessedContent]:
-        """获取文章的处理结果"""
-        return self.db.query(ProcessedContent).filter(
-            ProcessedContent.article_id == article_id
-        ).first()
-    
-    def get_processed_content_by_article_id(self, article_id: int) -> Optional[ProcessedContent]:
-        """根据文章ID获取处理结果（别名方法）"""
-        return self.get_processed_content(article_id)
-    
-    def update_processed_content(
-        self, article_id: int, update_data: Dict[str, Any]
-    ) -> Optional[ProcessedContent]:
-        """更新处理结果"""
-        content = self.get_processed_content(article_id)
-        if content:
-            for key, value in update_data.items():
-                setattr(content, key, value)
-            content.updated_at = datetime.utcnow()
-            self.db.commit()
-            self.db.refresh(content)
-        return content
-    
-    def delete_processed_content(self, article_id: int) -> bool:
-        """删除处理结果"""
-        content = self.get_processed_content(article_id)
-        if content:
-            self.db.delete(content)
-            self.db.commit()
-            return True
-        return False
-    
-    def get_unprocessed_articles(self, limit: int = 50) -> List[NewsArticle]:
-        """获取未处理的文章"""
-        return self.db.query(NewsArticle).filter(
-            NewsArticle.is_processed == False
-        ).order_by(asc(NewsArticle.created_at)).limit(limit).all()
-    
-    def get_processed_articles_with_content(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        category: Optional[str] = None,
-        min_quality: Optional[float] = None
-    ) -> List[Dict[str, Any]]:
-        """获取已处理且包含处理结果的文章"""
-        query = self.db.query(NewsArticle, ProcessedContent).join(
-            ProcessedContent, NewsArticle.id == ProcessedContent.article_id
-        )
-        
-        if category:
-            query = query.filter(NewsArticle.category == category)
-        if min_quality:
-            query = query.filter(ProcessedContent.quality_score >= min_quality)
-        
-        # 明确指定排序字段，避免ambiguous column错误
-        results = query.order_by(desc(NewsArticle.created_at)).offset(skip).limit(limit).all()
-        
-        return [
-            {
-                'article': article,
-                'processed_content': content
-            }
-            for article, content in results
-        ]
+    def get_unprocessed_articles(self, limit: int = 10) -> List[NewsArticle]:
+        """获取未处理的新闻文章"""
+        return self.db.query(NewsArticle).filter(NewsArticle.is_processed == False).order_by(desc(NewsArticle.created_at)).limit(limit).all()
     
     # Statistics
     def get_statistics(self) -> Dict[str, Any]:
@@ -278,27 +207,27 @@ class NewsRepository:
     def get_processing_statistics(self) -> Dict[str, Any]:
         """获取AI处理统计信息"""
         # 基础统计
-        total_processed = self.db.query(ProcessedContent).count()
+        total_processed = self.db.query(NewsArticle).filter(NewsArticle.is_processed == True).count()
         
         # 平均质量分数
-        avg_quality = self.db.query(func.avg(ProcessedContent.quality_score)).scalar()
+        avg_quality = self.db.query(func.avg(NewsArticle.quality_score)).scalar()
         avg_quality = round(float(avg_quality), 2) if avg_quality else 0.0
         
         # 平均处理时间
-        avg_processing_time = self.db.query(func.avg(ProcessedContent.processing_time)).scalar()
+        avg_processing_time = self.db.query(func.avg(NewsArticle.processing_time)).scalar()
         avg_processing_time = round(float(avg_processing_time), 2) if avg_processing_time else 0.0
         
         # 质量分布
         quality_distribution = self.db.query(
-            func.count(ProcessedContent.id).label('count'),
-            func.floor(ProcessedContent.quality_score).label('score_range')
-        ).group_by(func.floor(ProcessedContent.quality_score)).all()
+            func.count(NewsArticle.id).label('count'),
+            func.floor(NewsArticle.quality_score).label('score_range')
+        ).group_by(func.floor(NewsArticle.quality_score)).all()
         
         # 按分类统计 - 明确指定字段避免ambiguous column错误
         category_stats = self.db.query(
             NewsArticle.category,
-            func.count(ProcessedContent.id).label('processed_count')
-        ).join(ProcessedContent, NewsArticle.id == ProcessedContent.article_id).group_by(
+            func.count(NewsArticle.id).label('processed_count')
+        ).filter(NewsArticle.is_processed == True).group_by(
             NewsArticle.category
         ).all()
         

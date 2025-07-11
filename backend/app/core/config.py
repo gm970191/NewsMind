@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     
     # 应用基本信息
     app_name: str = "NewsMind"
-    app_version: str = "0.1.0"
+    app_version: str = "0.5.0"
     debug: bool = True
     
     # API配置

@@ -1,37 +1,59 @@
 #!/usr/bin/env python3
 """
-测试AI翻译功能
+测试翻译功能
 """
 import sys
-import os
-sys.path.insert(0, os.path.dirname(__file__))
-from ai_translator import detect_language, translate_text
+from pathlib import Path
 
-def test_translation():
+# 添加backend目录到Python路径
+backend_dir = Path(__file__).parent.parent / "backend"
+sys.path.insert(0, str(backend_dir))
+
+from app.services.ai_processor import AIProcessor
+from app.services.news_service import NewsRepository
+from app.core.database import SessionLocal
+import asyncio
+
+async def test_translation():
     """测试翻译功能"""
-    print("🧪 测试AI翻译功能...")
-    print("=" * 60)
+    print("🧪 开始测试翻译功能...")
     
-    test_texts = [
-        "Trump pledges 50% tariffs against Brazil",
-        "AI technology breakthrough in China",
-        "ニュース速報：日本経済の最新動向",
-        "L'actualité en France aujourd'hui",
-        "Deutsche Wirtschaft im Aufschwung"
-    ]
+    db = SessionLocal()
+    repo = NewsRepository(db)
     
-    for i, text in enumerate(test_texts, 1):
-        print(f"\n📝 测试 {i}:")
-        print(f"原文: {text}")
+    try:
+        # 创建AI处理器
+        print("🔧 创建AI处理器...")
+        processor = AIProcessor(repo)
+        print(f"✅ AI处理器创建成功，LLM类型: {type(processor.llm).__name__}")
         
-        # 检测语言
-        lang = detect_language(text)
-        print(f"检测语言: {lang}")
+        # 测试内容
+        test_content = "The Marines will be assigned tasks related to transportation, logistics and administrative functions. They're not authorized to make arrests."
         
-        # 翻译
-        translated = translate_text(text)
-        print(f"翻译结果: {translated}")
-        print("-" * 40)
+        print(f"📝 测试内容: {test_content}")
+        print(f"📏 内容长度: {len(test_content)} 字符")
+        
+        # 测试翻译
+        print("\n🔄 开始翻译...")
+        try:
+            translation = await processor._translate_to_chinese(test_content)
+            
+            if translation:
+                print(f"✅ 翻译成功: {translation}")
+                print(f"📏 翻译长度: {len(translation)} 字符")
+            else:
+                print("❌ 翻译失败: 返回None")
+        except Exception as e:
+            print(f"❌ 翻译过程中出错: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    except Exception as e:
+        print(f"❌ 翻译测试出错: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
 
-if __name__ == '__main__':
-    test_translation() 
+if __name__ == "__main__":
+    asyncio.run(test_translation()) 

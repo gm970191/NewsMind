@@ -41,7 +41,10 @@ export const useNewsStore = defineStore('news', () => {
   const fetchProcessedArticles = async (params = {}) => {
     loading.value = true
     try {
-      const response = await axios.get('/api/v1/ai/processed-articles', { params })
+      // 使用现有的news/articles接口，添加is_processed=true参数
+      const response = await axios.get('/api/v1/news/articles', { 
+        params: { ...params, is_processed: true }
+      })
       
       // 如果是追加模式，则追加到现有数据
       if (params.append) {
