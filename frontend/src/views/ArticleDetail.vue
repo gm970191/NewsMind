@@ -1,261 +1,287 @@
 <template>
   <div class="article-detail">
-    <div class="container mx-auto px-4 py-8">
-      <!-- 返回按钮 -->
-      <div class="mb-6">
-        <button 
-          @click="$router.go(-1)" 
-          class="flex items-center text-blue-600 hover:text-blue-800 transition-colors"
-        >
-          <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path>
-          </svg>
-          返回
-        </button>
-      </div>
-
-      <!-- 加载状态 -->
-      <div v-if="loading" class="text-center py-12">
-        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-        <p class="mt-4 text-gray-600">加载中...</p>
-      </div>
-
-      <!-- 文章内容 -->
-      <div v-else-if="article" class="max-w-4xl mx-auto">
-        <!-- 文章头部 -->
-        <div class="mb-8">
-          <h1 class="text-3xl font-bold text-gray-900 mb-4">{{ article.title }}</h1>
-          <div class="flex items-center text-gray-600 text-sm mb-4">
-            <span class="mr-4">来源: {{ article.source_name }}</span>
-            <span class="mr-4">分类: {{ article.category }}</span>
-            <span class="mr-4">语言: {{ article.language }}</span>
-            <span v-if="article.quality_score" class="mr-4">
-              质量评分: {{ article.quality_score.toFixed(1) }}
-            </span>
-            <span>{{ formatDate(article.publish_time) }}</span>
-          </div>
-          <div class="flex items-center space-x-4">
-            <a 
-              :href="article.source_url" 
-              target="_blank" 
-              class="text-blue-600 hover:text-blue-800 transition-colors"
-            >
-              查看原文
-            </a>
-            <button 
-              v-if="!article.is_processed"
-              @click="processArticle"
-              :disabled="processing"
-              class="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {{ processing ? '处理中...' : 'AI处理' }}
-            </button>
-          </div>
+    <el-card class="article-card">
+      <div class="header">
+        <h2>{{ getDisplayTitle() }}</h2>
+        <div v-if="article.original_language !== 'zh' && article.original_title" class="original-title">
+          <span>原文：{{ article.original_title }}</span>
         </div>
-
-        <!-- 文章内容 -->
-        <div class="prose prose-lg max-w-none mb-8">
-          <div class="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 class="text-lg font-semibold mb-4">
-              {{ article.language !== 'zh' && processedContent?.translation_zh ? '中文翻译' : '原文内容' }}
-            </h3>
-            <div class="text-gray-700 leading-relaxed whitespace-pre-wrap">
-              {{ article.language !== 'zh' && processedContent?.translation_zh ? processedContent.translation_zh : article.content }}
-            </div>
-          </div>
-        </div>
-
-        <!-- AI处理结果 -->
-        <div v-if="article.is_processed && processedContent" class="space-y-6">
-          <!-- 摘要 -->
-          <div class="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 class="text-lg font-semibold mb-4 text-gray-900">AI摘要</h3>
-            <div class="grid md:grid-cols-2 gap-6">
-              <div>
-                <h4 class="font-medium text-gray-700 mb-2">中文摘要</h4>
-                <p class="text-gray-600 leading-relaxed">{{ processedContent.summary_zh }}</p>
-              </div>
-              <div>
-                <h4 class="font-medium text-gray-700 mb-2">English Summary</h4>
-                <p class="text-gray-600 leading-relaxed">{{ processedContent.summary_en }}</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- 翻译 -->
-          <div v-if="processedContent.translation_zh" class="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 class="text-lg font-semibold mb-4 text-gray-900">中文翻译</h3>
-            <div class="text-gray-600 leading-relaxed whitespace-pre-wrap">{{ processedContent.translation_zh }}</div>
-          </div>
-
-          <!-- 质量评估 -->
-          <div v-if="processedContent.quality_score" class="bg-white p-6 rounded-lg shadow-sm border">
-            <h3 class="text-lg font-semibold mb-4 text-gray-900">质量评估</h3>
-            <div class="flex items-center">
-              <div class="flex-1">
-                <div class="flex items-center justify-between mb-2">
-                  <span class="text-sm font-medium text-gray-700">内容质量</span>
-                  <span class="text-sm text-gray-600">{{ processedContent.quality_score.toFixed(1) }}/10</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-2">
-                  <div 
-                    class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    :style="{ width: (processedContent.quality_score / 10 * 100) + '%' }"
-                  ></div>
-                </div>
-              </div>
-            </div>
-            <div v-if="processedContent.processing_time" class="mt-4 text-sm text-gray-500">
-              处理时间: {{ processedContent.processing_time }}秒
-            </div>
-          </div>
-        </div>
-
-        <!-- 处理中状态 -->
-        <div v-else-if="processing" class="bg-white p-6 rounded-lg shadow-sm border text-center">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p class="text-gray-600">AI正在处理文章内容...</p>
+        <div class="meta">
+          <span>来源：{{ article.source_name }}</span>
+          <span>分类：{{ article.category }}</span>
+          <span>发布时间：{{ formatDate(article.publish_time || article.created_at) }}</span>
         </div>
       </div>
-
-      <!-- 错误状态 -->
-      <div v-else class="text-center py-12">
-        <div class="text-red-600 mb-4">
-          <svg class="w-16 h-16 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"></path>
-          </svg>
+      <el-divider></el-divider>
+      <div v-if="article.processed_content">
+        <div class="section">
+          <h3>中文概要</h3>
+          <p class="summary">{{ article.processed_content.summary_zh }}</p>
         </div>
-        <h3 class="text-lg font-semibold text-gray-900 mb-2">文章未找到</h3>
-        <p class="text-gray-600 mb-6">
-          抱歉，无法找到ID为 <span class="font-mono bg-gray-100 px-2 py-1 rounded">{{ route.params.id }}</span> 的文章。
-          <br>该文章可能已被删除或ID不正确。
-        </p>
-        <div class="space-x-4">
-          <button 
-            @click="$router.push('/')" 
-            class="bg-blue-600 text-white px-6 py-2 rounded hover:bg-blue-700 transition-colors"
-          >
-            返回首页
-          </button>
-          <button 
-            @click="loadArticle" 
-            class="bg-gray-600 text-white px-6 py-2 rounded hover:bg-gray-700 transition-colors"
-          >
-            重新加载
-          </button>
+        <el-divider></el-divider>
+        <div class="section">
+          <h3>正文总结（最多10000字）</h3>
+          <div class="detailed-summary">
+            <div class="content-text markdown-content" v-html="renderMarkdown(article.processed_content.detailed_summary_zh)"></div>
+          </div>
         </div>
       </div>
-    </div>
+      <div v-else>
+        <el-alert title="该新闻尚未AI处理，暂无AI摘要和详细总结。" type="info" show-icon></el-alert>
+      </div>
+      <el-divider></el-divider>
+      <div v-if="article.translated_content" class="section">
+        <h3>中文翻译</h3>
+        <div class="translation-content">
+          <div class="content-text">
+            {{ article.translated_content }}
+          </div>
+        </div>
+      </div>
+      
+      <div class="section">
+        <h3>原始正文</h3>
+        <div class="origin-content">
+          <div class="content-text">
+            {{ article.original_content }}
+          </div>
+        </div>
+      </div>
+      <div class="footer">
+        <el-button type="primary" @click="goBack">返回</el-button>
+        <el-button v-if="!article.is_processed" type="success" @click="processArticle">立即AI处理</el-button>
+      </div>
+    </el-card>
   </div>
 </template>
 
 <script>
-import { ref, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { useNewsStore } from '../stores/news'
+import { ref, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import axios from 'axios';
+import { ElMessage } from 'element-plus';
+import MarkdownIt from 'markdown-it';
 
 export default {
   name: 'ArticleDetail',
   setup() {
-    const route = useRoute()
-    const newsStore = useNewsStore()
-    
-    const article = ref(null)
-    const processedContent = ref(null)
-    const loading = ref(true)
-    const processing = ref(false)
+    const route = useRoute();
+    const router = useRouter();
+    const article = ref({});
+    const loading = ref(false);
 
-    const loadArticle = async () => {
+    const fetchArticle = async () => {
+      loading.value = true;
       try {
-        loading.value = true
-        const articleId = parseInt(route.params.id)
-        
-        // 验证文章ID是否有效
-        if (isNaN(articleId) || articleId <= 0) {
-          console.error('Invalid article ID:', route.params.id)
-          article.value = null
-          return
-        }
-        
-        const response = await fetch(`/api/v1/news/articles/${articleId}`)
-        
-        if (response.ok) {
-          const data = await response.json()
-          article.value = data
-          processedContent.value = data.processed_content
-        } else if (response.status === 404) {
-          console.error(`Article ${articleId} not found`)
-          article.value = null
-        } else {
-          console.error('Failed to load article, status:', response.status)
-          article.value = null
-        }
-      } catch (error) {
-        console.error('Error loading article:', error)
-        article.value = null
+        const { data } = await axios.get(`/api/v1/news/articles/${route.params.id}`);
+        article.value = data;
+      } catch (e) {
+        ElMessage.error('获取文章详情失败');
       } finally {
-        loading.value = false
+        loading.value = false;
       }
-    }
+    };
 
     const processArticle = async () => {
       try {
-        processing.value = true
-        const articleId = parseInt(route.params.id)
-        const response = await fetch(`/api/v1/ai/process/${articleId}`, {
-          method: 'POST'
-        })
-        
-        if (response.ok) {
-          // 重新加载文章以获取处理结果
-          await loadArticle()
-        } else {
-          console.error('Failed to process article')
-        }
-      } catch (error) {
-        console.error('Error processing article:', error)
-      } finally {
-        processing.value = false
+        ElMessage.info('正在AI处理中，请稍候...');
+        const response = await axios.post(`/api/v1/ai/process-button/${route.params.id}`);
+        console.log('AI处理响应:', response.data);
+        ElMessage.success(response.data.message || 'AI处理已完成！');
+        await fetchArticle(); // 重新获取文章数据
+      } catch (e) {
+        console.error('AI处理失败:', e);
+        const errorMsg = e.response?.data?.detail || e.response?.data?.message || e.message;
+        ElMessage.error('AI处理失败: ' + errorMsg);
       }
-    }
+    };
 
-    const formatDate = (dateString) => {
-      if (!dateString) return ''
-      const date = new Date(dateString)
-      return date.toLocaleString('zh-CN')
-    }
+    const goBack = () => {
+      router.back();
+    };
 
-    onMounted(() => {
-      loadArticle()
-    })
+    const formatDate = (dateStr) => {
+      if (!dateStr) return '';
+      return new Date(dateStr).toLocaleString('zh-CN');
+    };
+
+    const renderMarkdown = (text) => {
+      if (!text) return '';
+      const md = new MarkdownIt();
+      return md.render(text);
+    };
+
+    const getDisplayTitle = () => {
+      // 优先显示翻译后的标题，如果没有则显示原文标题
+      if (article.value.translated_title) {
+        return article.value.translated_title;
+      }
+      return article.value.original_title;
+    };
+
+    onMounted(fetchArticle);
 
     return {
       article,
-      processedContent,
       loading,
-      processing,
       processArticle,
-      formatDate
-    }
+      goBack,
+      formatDate,
+      renderMarkdown,
+      getDisplayTitle
+    };
   }
-}
+};
 </script>
 
 <style scoped>
 .article-detail {
-  min-height: 100vh;
-  background-color: #f8fafc;
+  max-width: 900px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+.article-card {
+  box-shadow: 0 2px 12px #f0f1f2;
+  border-radius: 12px;
+  padding: 32px 24px;
+}
+.header {
+  margin-bottom: 12px;
+}
+.header h2 {
+  margin: 0 0 8px 0;
+  font-size: 2rem;
+  font-weight: bold;
+}
+.meta {
+  color: #888;
+  font-size: 0.95rem;
+  display: flex;
+  gap: 24px;
+}
+.section {
+  margin-bottom: 18px;
+}
+.summary {
+  font-size: 1.1rem;
+  color: #333;
+  background: #f8f8fa;
+  padding: 12px 16px;
+  border-radius: 6px;
+  line-height: 1.7;
+}
+.detailed-summary {
+  background: #f6f8ff;
+  padding: 14px 16px;
+  border-radius: 6px;
+  font-size: 1rem;
+  color: #222;
+}
+.original-content {
+  background: #f9f9f9;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 1rem;
+  color: #444;
+}
+.origin-content {
+  background: #f4f4f4;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.98rem;
+  color: #666;
 }
 
-.prose {
-  max-width: none;
+.translation-content {
+  background: #f0f8ff;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 0.98rem;
+  color: #333;
+}
+.original-title {
+  margin: 8px 0;
+}
+.original-title span {
+  font-size: 0.9rem;
+  color: #888;
+  font-weight: normal;
+  margin: 0;
+  font-style: italic;
+}
+.content-text {
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  line-height: 1.6;
 }
 
-.prose h1, .prose h2, .prose h3, .prose h4, .prose h5, .prose h6 {
-  color: #1f2937;
+.markdown-content {
+  white-space: normal;
 }
 
-.prose p {
-  color: #374151;
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin: 16px 0 8px 0;
+  font-weight: bold;
+  color: #333;
+}
+
+.markdown-content h1 {
+  font-size: 1.8rem;
+  border-bottom: 2px solid #e1e4e8;
+  padding-bottom: 8px;
+}
+
+.markdown-content h2 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid #e1e4e8;
+  padding-bottom: 6px;
+}
+
+.markdown-content h3 {
+  font-size: 1.3rem;
+}
+
+.markdown-content p {
+  margin: 8px 0;
+  line-height: 1.6;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: 8px 0;
+  padding-left: 24px;
+}
+
+.markdown-content li {
+  margin: 4px 0;
+  line-height: 1.6;
+}
+
+.markdown-content strong {
+  font-weight: bold;
+  color: #333;
+}
+
+.markdown-content em {
+  font-style: italic;
+}
+
+.markdown-content blockquote {
+  border-left: 4px solid #e1e4e8;
+  padding-left: 16px;
+  margin: 16px 0;
+  color: #666;
+  font-style: italic;
+}
+.footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 16px;
+  margin-top: 24px;
 }
 </style> 

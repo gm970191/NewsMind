@@ -4,12 +4,13 @@ AI processing service for news content
 import asyncio
 import logging
 import time
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Protocol
 from datetime import datetime
 
 from langchain_deepseek import ChatDeepSeek
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+import requests
 
 from app.core.config import settings
 from app.services.news_service import NewsRepository
@@ -18,20 +19,70 @@ from app.models.news import NewsArticle, ProcessedContent
 logger = logging.getLogger(__name__)
 
 
+class LLMBackend(Protocol):
+    async def ainvoke(self, messages: list) -> Any:
+        ...
+
+class LMStudioLLM:
+    """本地LM Studio LLM实现"""
+    def __init__(self, api_url: str = "http://127.0.0.1:1234/v1/chat/completions"):
+        self.api_url = api_url
+
+    async def ainvoke(self, messages: list) -> Any:
+        # 转换为OpenAI格式
+        payload = {
+            "model": "lmstudio",
+            "messages": [
+                {"role": "system", "content": m.content} if isinstance(m, SystemMessage) else {"role": "user", "content": m.content}
+                for m in messages
+            ],
+            "temperature": 0.1,
+            "max_tokens": 800
+        }
+        try:
+            resp = requests.post(self.api_url, json=payload, timeout=30)
+            resp.raise_for_status()
+            result = resp.json()
+            content = result["choices"][0]["message"]["content"]
+            class Resp: pass
+            r = Resp(); r.content = content
+            return r
+        except Exception as e:
+            raise RuntimeError(f"LM Studio调用失败: {e}")
+
+class DeepSeekLLM:
+    """DeepSeek LLM实现（兼容langchain_deepseek）"""
+    def __init__(self, api_key: str, model: str = "deepseek-chat"):
+        self.llm = ChatDeepSeek(api_key=api_key, model=model, temperature=0.1, max_tokens=800)
+    async def ainvoke(self, messages: list) -> Any:
+        return await self.llm.ainvoke(messages)
+
+
 class AIProcessor:
     """AI内容处理器"""
     
-    def __init__(self, repo: NewsRepository):
+    def __init__(self, repo: NewsRepository, llm: LLMBackend = None):
         self.repo = repo
-        self.llm = ChatDeepSeek(
-            api_key=settings.deepseek_api_key,
-            model="deepseek-chat",
-            temperature=0.3,
-            max_tokens=4000
-        )
+        # 优先本地LM Studio，不可用时自动切换DeepSeek
+        if llm is not None:
+            self.llm = llm
+        else:
+            try:
+                self.llm = LMStudioLLM()
+                # 测试本地服务可用性
+                import asyncio
+                async def test():
+                    msg = [SystemMessage(content="你是AI助手。"), HumanMessage(content="你好")]
+                    await self.llm.ainvoke(msg)
+                asyncio.get_event_loop().run_until_complete(test())
+            except Exception as e:
+                logger.warning(f"本地LM Studio不可用，切换到DeepSeek: {e}")
+                from app.core.config import settings
+                self.llm = DeepSeekLLM(api_key=settings.deepseek_api_key)
+        # 减少文本长度，提高处理速度
         self.text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=3000,
-            chunk_overlap=200,
+            chunk_size=1500,  # 减少chunk大小
+            chunk_overlap=100,  # 减少重叠
             length_function=len,
         )
     
@@ -60,8 +111,8 @@ class AIProcessor:
                 else:
                     results['error_count'] += 1
                 
-                # 避免API调用过于频繁
-                await asyncio.sleep(1)
+                # 减少延迟，提高处理速度
+                await asyncio.sleep(0.5)
                 
             except Exception as e:
                 logger.error(f"Error processing article {article.id}: {e}")
@@ -91,8 +142,8 @@ class AIProcessor:
             if article.language == 'en':
                 translation_zh = await self._translate_to_chinese(article.content)
             
-            # 4. 质量评估
-            quality_score = await self._evaluate_quality(article.content)
+            # 4. 质量评估（可选，为提高速度可跳过）
+            quality_score = 7.0  # 默认中等质量，跳过AI评估以提高速度
             
             # 5. 保存处理结果
             processing_time = time.time() - start_time
@@ -136,20 +187,11 @@ class AIProcessor:
         """生成中文摘要"""
         try:
             # 如果内容太长，先分割
-            if len(content) > 3000:
+            if len(content) > 1500:
                 chunks = self.text_splitter.split_text(content)
                 content = chunks[0]  # 使用第一个chunk
             
-            system_prompt = """你是一个专业的新闻编辑，请为以下新闻内容生成一个简洁、准确的中文摘要。
-
-要求：
-1. 摘要长度控制在100-150字之间
-2. 突出新闻的核心信息和关键事实
-3. 使用客观、准确的语言
-4. 保持新闻的时效性和重要性
-5. 避免主观评价和推测
-
-请直接返回摘要内容，不要添加任何额外的说明或格式。"""
+            system_prompt = """为以下新闻生成简洁的中文摘要，控制在150字以内，突出核心信息。直接返回摘要内容。"""
 
             messages = [
                 SystemMessage(content=system_prompt),
@@ -172,20 +214,11 @@ class AIProcessor:
         """生成英文摘要"""
         try:
             # 如果内容太长，先分割
-            if len(content) > 3000:
+            if len(content) > 1500:
                 chunks = self.text_splitter.split_text(content)
                 content = chunks[0]  # 使用第一个chunk
             
-            system_prompt = """You are a professional news editor. Please generate a concise and accurate English summary for the following news content.
-
-Requirements:
-1. Summary length should be between 100-150 words
-2. Highlight the core information and key facts of the news
-3. Use objective and accurate language
-4. Maintain the timeliness and importance of the news
-5. Avoid subjective evaluations and speculations
-
-Please return the summary content directly, without any additional explanations or formatting."""
+            system_prompt = """Generate a concise English summary of the following news in 150 words or less. Focus on key facts. Return summary directly."""
 
             messages = [
                 SystemMessage(content=system_prompt),
@@ -208,20 +241,11 @@ Please return the summary content directly, without any additional explanations 
         """翻译为中文"""
         try:
             # 如果内容太长，先分割
-            if len(content) > 3000:
+            if len(content) > 1500:
                 chunks = self.text_splitter.split_text(content)
                 content = chunks[0]  # 使用第一个chunk
             
-            system_prompt = """你是一个专业的翻译专家，请将以下英文新闻内容翻译成中文。
-
-要求：
-1. 保持原文的意思和语气
-2. 使用准确、流畅的中文表达
-3. 保持新闻的专业性和可读性
-4. 适当调整语序以符合中文表达习惯
-5. 保留重要的专有名词和数字
-
-请直接返回翻译结果，不要添加任何额外的说明或格式。"""
+            system_prompt = """将以下英文新闻翻译成中文，保持原意，使用流畅的中文表达。直接返回翻译结果。"""
 
             messages = [
                 SystemMessage(content=system_prompt),

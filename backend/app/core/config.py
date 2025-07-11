@@ -47,9 +47,11 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # 验证必需的配置
-        if not self.deepseek_api_key:
+        # 验证必需的配置 - 允许在开发环境中跳过API密钥验证
+        if not self.deepseek_api_key and not self.debug:
             raise ValueError("DEEPSEEK_API_KEY 环境变量未设置。请在 .env 文件中设置您的 API 密钥。")
+        elif not self.deepseek_api_key:
+            print("⚠️  警告: DEEPSEEK_API_KEY 未设置，AI功能将不可用")
 
 
 # 全局配置实例

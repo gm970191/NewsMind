@@ -83,7 +83,7 @@ def start_simple_server():
         import sqlite3
         
         app = Flask(__name__)
-        DB_PATH = "newsmind.db"
+        DB_PATH = "backend/newsmind.db"
         
         @app.route('/health')
         def health():
@@ -113,33 +113,33 @@ def start_simple_server():
                 params = []
                 
                 if category:
-                    where_conditions.append("category = ?")
+                    where_conditions.append("na.category = ?")
                     params.append(category)
                 
                 if language:
-                    where_conditions.append("language = ?")
+                    where_conditions.append("na.language = ?")
                     params.append(language)
                 
                 # 添加日期筛选
                 if date_filter:
                     if date_filter == 'today':
                         # 筛选今日新闻
-                        where_conditions.append("DATE(created_at) = DATE('now')")
+                        where_conditions.append("DATE(na.created_at) = DATE('now')")
                     elif date_filter == 'yesterday':
                         # 筛选昨日新闻
-                        where_conditions.append("DATE(created_at) = DATE('now', '-1 day')")
+                        where_conditions.append("DATE(na.created_at) = DATE('now', '-1 day')")
                     elif date_filter == 'week':
                         # 筛选本周新闻
-                        where_conditions.append("DATE(created_at) >= DATE('now', '-7 days')")
+                        where_conditions.append("DATE(na.created_at) >= DATE('now', '-7 days')")
                     elif date_filter == 'month':
                         # 筛选本月新闻
-                        where_conditions.append("DATE(created_at) >= DATE('now', '-30 days')")
+                        where_conditions.append("DATE(na.created_at) >= DATE('now', '-30 days')")
                     else:
                         # 自定义日期格式 YYYY-MM-DD
                         try:
                             from datetime import datetime
                             datetime.strptime(date_filter, '%Y-%m-%d')
-                            where_conditions.append("DATE(created_at) = ?")
+                            where_conditions.append("DATE(na.created_at) = ?")
                             params.append(date_filter)
                         except ValueError:
                             pass  # 忽略无效日期格式
@@ -150,10 +150,13 @@ def start_simple_server():
                 
                 # 执行查询
                 query = f"""
-                    SELECT id, title, content, source_name, publish_time, category, language, created_at
-                    FROM news_articles 
+                    SELECT na.id, na.title, na.content, na.source_name, na.publish_time, 
+                           na.category, na.language, na.created_at, na.is_processed,
+                           pc.summary_zh, pc.translated_title, pc.translation_zh
+                    FROM news_articles na
+                    LEFT JOIN processed_content pc ON na.id = pc.article_id
                     {where_clause}
-                    ORDER BY created_at DESC 
+                    ORDER BY na.created_at DESC 
                     LIMIT ? OFFSET ?
                 """
                 params.extend([limit, skip])
@@ -161,15 +164,30 @@ def start_simple_server():
                 cursor.execute(query, params)
                 articles = []
                 for row in cursor.fetchall():
+                    # 优先使用中文概要，如果没有则使用原文内容
+                    content = row[9] if row[9] else row[2]
+                    content = content[:200] + "..." if len(content) > 200 else content
+                    
+                    # 构建AI处理结果对象
+                    ai_processing = None
+                    if row[8]:  # is_processed
+                        ai_processing = {
+                            "summary_zh": row[9],
+                            "translated_title": row[10],
+                            "translation_zh": row[11]
+                        }
+                    
                     articles.append({
                         "id": row[0],
                         "title": row[1],
-                        "content": row[2][:200] + "..." if len(row[2]) > 200 else row[2],
+                        "content": content,
                         "source_name": row[3],
                         "publish_time": row[4],
                         "category": row[5],
                         "language": row[6],
-                        "created_at": row[7]
+                        "created_at": row[7],
+                        "is_processed": bool(row[8]),
+                        "ai_processing": ai_processing
                     })
                 conn.close()
                 return jsonify({"articles": articles, "total": len(articles)})
@@ -238,7 +256,7 @@ def start_simple_server():
                 
                 cursor.execute("""
                     SELECT id, title, content, source_url, source_name, publish_time, 
-                           category, language, quality_score, is_processed, created_at
+                           category, language, quality_score, is_processed, created_at, original_title
                     FROM news_articles 
                     WHERE id = ?
                 """, (article_id,))
@@ -259,12 +277,15 @@ def start_simple_server():
                     "language": row[7],
                     "quality_score": row[8],
                     "is_processed": bool(row[9]),
-                    "created_at": row[10]
+                    "created_at": row[10],
+                    "original_title": row[11]
                 }
                 
                 # 获取处理结果（如果存在）
                 cursor.execute("""
-                    SELECT summary_zh, summary_en, translation_zh, quality_score, processing_time
+                    SELECT summary_zh, summary_en, translation_zh, quality_score, processing_time,
+                           detailed_summary_zh, detailed_summary_en, original_content_zh, original_content_en,
+                           summary_length, detailed_summary_length, original_content_length, translated_title
                     FROM processed_content 
                     WHERE article_id = ?
                 """, (article_id,))
@@ -276,7 +297,15 @@ def start_simple_server():
                         "summary_en": processed_row[1],
                         "translation_zh": processed_row[2],
                         "quality_score": processed_row[3],
-                        "processing_time": processed_row[4]
+                        "processing_time": processed_row[4],
+                        "detailed_summary_zh": processed_row[5],
+                        "detailed_summary_en": processed_row[6],
+                        "original_content_zh": processed_row[7],
+                        "original_content_en": processed_row[8],
+                        "summary_length": processed_row[9],
+                        "detailed_summary_length": processed_row[10],
+                        "original_content_length": processed_row[11],
+                        "translated_title": processed_row[12]
                     }
                 else:
                     article["processed_content"] = None

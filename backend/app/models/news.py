@@ -32,19 +32,32 @@ class NewsSource(Base):
 
 
 class NewsArticle(Base):
-    """新闻文章表"""
+    """新闻文章表 - 重新设计，包含原始字段和翻译字段"""
     __tablename__ = "news_articles"
 
     id = Column(Integer, primary_key=True, index=True)
-    title = Column(String(500), nullable=False, index=True)
-    content = Column(Text, nullable=False)
+    
+    # 原始字段
+    original_title = Column(String(500), nullable=False, index=True)  # 原始标题
+    original_content = Column(Text, nullable=False)  # 原始内容
+    original_language = Column(String(10), nullable=True)  # 检测到的原始语言
+    
+    # 翻译字段
+    translated_title = Column(String(500), nullable=True, index=True)  # 中文翻译标题
+    translated_content = Column(Text, nullable=True)  # 中文翻译内容
+    
+    # 翻译状态字段
+    is_title_translated = Column(Boolean, default=False)  # 标题是否已翻译
+    is_content_translated = Column(Boolean, default=False)  # 内容是否已翻译
+    translation_quality_score = Column(Float, default=0.0)  # 翻译质量评分
+    
+    # 其他字段
     source_url = Column(String(500), nullable=False, unique=True)
     source_id = Column(Integer, ForeignKey("news_sources.id"), nullable=False)
     source_name = Column(String(255), nullable=False)  # 冗余字段，便于查询
     publish_time = Column(DateTime, nullable=True)
-    language = Column(String(10), nullable=True)  # 检测到的语言
     category = Column(String(100), nullable=True)  # 分类标签
-    quality_score = Column(Float, default=0.0)  # 质量评分
+    quality_score = Column(Float, default=0.0)  # 整体质量评分
     is_processed = Column(Boolean, default=False)  # 是否已AI处理
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -54,7 +67,7 @@ class NewsArticle(Base):
     processed_content = relationship("ProcessedContent", back_populates="article", uselist=False)
 
     def __repr__(self):
-        return f"<NewsArticle(id={self.id}, title='{self.title[:50]}...')>"
+        return f"<NewsArticle(id={self.id}, title='{self.original_title[:50]}...')>"
 
 
 class ProcessedContent(Base):
@@ -64,11 +77,19 @@ class ProcessedContent(Base):
     id = Column(Integer, primary_key=True, index=True)
     article_id = Column(Integer, ForeignKey("news_articles.id"), nullable=False, unique=True)
     summary_zh = Column(Text, nullable=True)  # 中文摘要
+    detailed_summary_zh = Column(Text, nullable=True)  # 中文详细摘要
     summary_en = Column(Text, nullable=True)  # 英文摘要
+    detailed_summary_en = Column(Text, nullable=True)  # 英文详细摘要
     translation_zh = Column(Text, nullable=True)  # 中文翻译
+    original_content_zh = Column(Text, nullable=True)  # 中文原文内容
+    original_content_en = Column(Text, nullable=True)  # 英文原文内容
+    translated_title = Column(Text, nullable=True)  # 翻译标题
     quality_score = Column(Float, default=0.0)  # AI评估的质量分数
     processing_time = Column(Float, nullable=True)  # 处理耗时（秒）
     api_calls_used = Column(Integer, default=0)  # 使用的API调用次数
+    summary_length = Column(Integer, nullable=True)  # 摘要长度
+    detailed_summary_length = Column(Integer, nullable=True)  # 详细摘要长度
+    original_content_length = Column(Integer, nullable=True)  # 原文内容长度
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

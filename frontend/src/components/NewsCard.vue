@@ -8,17 +8,17 @@
     <!-- 卡片头部 -->
     <div class="card-header">
       <div class="source-info">
-        <span class="source-name">{{ article.source_name }}</span>
-        <el-tag 
-          :type="getCategoryType(article.category)" 
-          size="small"
-          class="category-tag"
-        >
-          {{ article.category }}
-        </el-tag>
-      </div>
-      <div class="time-info">
-        <div class="date-info">
+        <div class="source-left">
+          <span class="source-name">{{ article.source_name }}</span>
+          <el-tag 
+            :type="getCategoryType(article.category)" 
+            size="small"
+            class="category-tag"
+          >
+            {{ article.category }}
+          </el-tag>
+        </div>
+        <div class="time-info">
           <span class="collect-date">收集: {{ formatDate(article.created_at) }}</span>
           <span v-if="article.publish_time" class="publish-date">发布: {{ formatDate(article.publish_time) }}</span>
         </div>
@@ -27,51 +27,32 @@
 
     <!-- 卡片内容 -->
     <div class="card-content">
-      <h3 class="article-title">{{ article.title }}</h3>
-      
-      <!-- 摘要内容 -->
-      <div v-if="article.ai_processing" class="summary-section">
-        <div class="summary-tabs">
-          <el-tabs v-model="activeTab" size="small">
-            <el-tab-pane label="中文摘要" name="zh">
-              <div class="summary-content">
-                {{ article.ai_processing.summary_zh }}
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="英文摘要" name="en">
-              <div class="summary-content">
-                {{ article.ai_processing.summary_en }}
-              </div>
-            </el-tab-pane>
-            <el-tab-pane v-if="article.ai_processing.translation_zh" label="中文翻译" name="translation">
-              <div class="summary-content">
-                {{ article.ai_processing.translation_zh }}
-              </div>
-            </el-tab-pane>
-            <el-tab-pane label="原文" name="original">
-              <div class="summary-content">
-                {{ truncateContent(article.content) }}
-              </div>
-            </el-tab-pane>
-          </el-tabs>
+      <h3 class="article-title">
+        {{ getDisplayTitle() }}
+        <span v-if="article.original_language !== 'zh' && article.original_title && article.translated_title" class="origin-title" style="font-size:13px;color:#888;margin-left:6px;">（{{ article.original_title }}）</span>
+      </h3>
+      <!-- 显示中文概要或原文预览 -->
+      <div v-if="article.processed_content && article.processed_content.summary_zh" class="summary-section">
+        <div class="summary-content">
+          {{ article.processed_content.summary_zh }}
         </div>
-        
-        <!-- 质量评分 -->
-        <div class="quality-score">
-          <el-rate 
-            v-model="qualityScore" 
-            disabled 
-            show-score 
-            text-color="#ff9900"
-            score-template="{value}"
-          />
+      </div>
+      <!-- 未处理文章显示原文预览 -->
+      <div v-else-if="article.translated_content || article.original_content" class="unprocessed-content">
+        <div class="content-preview">
+          {{ truncateContent(article.translated_content || article.original_content, 200) }}
         </div>
       </div>
       
-      <!-- 未处理状态 -->
-      <div v-else class="unprocessed-content">
-        <p class="content-preview">{{ truncateContent(article.content) }}</p>
-        <el-tag type="warning" size="small">待AI处理</el-tag>
+      <!-- 质量评分 -->
+      <div v-if="(article.processed_content && article.processed_content.quality_score) || article.translation_quality_score" class="quality-score">
+        <el-rate 
+          :model-value="qualityScore" 
+          disabled 
+          show-score 
+          text-color="#ff9900"
+          score-template="{value}"
+        />
       </div>
     </div>
 
@@ -96,13 +77,21 @@
       </div>
       <div class="footer-right">
         <el-button 
-          v-if="!article.ai_processing" 
+          v-if="!article.is_processed" 
           type="primary" 
           size="small" 
           @click.stop="handleProcess"
           :loading="processing"
         >
-          立即处理
+          AI总结
+        </el-button>
+        <el-button 
+          v-else
+          type="info" 
+          size="small" 
+          disabled
+        >
+          AI总结
         </el-button>
       </div>
     </div>
@@ -135,7 +124,7 @@ const processing = ref(false)
 watch(() => props.article, (newArticle) => {
   if (newArticle) {
     // 如果是非中文新闻且有翻译，默认显示翻译
-    if (newArticle.language !== 'zh' && newArticle.ai_processing?.translation_zh) {
+    if (newArticle.original_language !== 'zh' && newArticle.translated_content) {
       activeTab.value = 'translation'
     } else {
       activeTab.value = 'zh'
@@ -145,8 +134,11 @@ watch(() => props.article, (newArticle) => {
 
 // 计算属性
 const qualityScore = computed(() => {
-  if (props.article.ai_processing?.quality_score) {
-    return props.article.ai_processing.quality_score / 2 // 转换为5分制
+  if (props.article.processed_content?.quality_score) {
+    return props.article.processed_content.quality_score / 2 // 转换为5分制
+  }
+  if (props.article.translation_quality_score) {
+    return props.article.translation_quality_score / 2 // 转换为5分制
   }
   return 0
 })
@@ -154,10 +146,12 @@ const qualityScore = computed(() => {
 // 方法
 const getCategoryType = (category) => {
   const typeMap = {
-    '国际新闻': 'primary',
     '科技': 'success',
     '财经': 'warning',
-    '体育': 'info'
+    '军事': 'danger',
+    '政治': 'primary',
+    '国际': 'info',
+    '其他': 'info'
   }
   return typeMap[category] || 'info'
 }
@@ -180,11 +174,19 @@ const formatDate = (timeStr) => {
   return date.toLocaleDateString()
 }
 
-const truncateContent = (content, maxLength = 150) => {
+const truncateContent = (content, maxLength = 300) => {
   if (!content) return ''
   return content.length > maxLength 
     ? content.substring(0, maxLength) + '...' 
     : content
+}
+
+const getDisplayTitle = () => {
+  // 优先显示中文翻译标题，如果没有则显示原文
+  if (props.article.translated_title) {
+    return props.article.translated_title
+  }
+  return props.article.original_title
 }
 
 const handleViewDetail = () => {
@@ -252,6 +254,12 @@ const handleProcess = async () => {
   margin-bottom: 4px;
 }
 
+.source-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .source-name {
   font-size: 12px;
   color: #666;
@@ -263,14 +271,10 @@ const handleProcess = async () => {
 }
 
 .time-info {
+  display: flex;
+  gap: 12px;
   font-size: 11px;
   color: #999;
-}
-
-.date-info {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .collect-date, .publish-date {
@@ -314,13 +318,15 @@ const handleProcess = async () => {
 
 .summary-content {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #666;
-  max-height: 80px;
+  max-height: 200px;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 3;
+  -webkit-line-clamp: 8;
   -webkit-box-orient: vertical;
+  margin-bottom: 8px;
+  white-space: pre-wrap;
 }
 
 .quality-score {
@@ -334,13 +340,13 @@ const handleProcess = async () => {
 
 .content-preview {
   font-size: 13px;
-  line-height: 1.5;
+  line-height: 1.6;
   color: #666;
   margin-bottom: 8px;
-  max-height: 60px;
+  max-height: 150px;
   overflow: hidden;
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 5;
   -webkit-box-orient: vertical;
 }
 
@@ -361,6 +367,19 @@ const handleProcess = async () => {
 .footer-right {
   display: flex;
   gap: 8px;
+}
+
+.footer-right .el-button--info.is-disabled {
+  background-color: #f5f7fa;
+  border-color: #e4e7ed;
+  color: #c0c4cc;
+  cursor: not-allowed;
+}
+
+.footer-right .el-button--info.is-disabled:hover {
+  background-color: #f5f7fa;
+  border-color: #e4e7ed;
+  color: #c0c4cc;
 }
 
 :deep(.el-tabs__header) {

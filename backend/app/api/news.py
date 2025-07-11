@@ -21,7 +21,8 @@ async def get_articles(
     source_id: Optional[int] = None,
     language: Optional[str] = None,
     is_processed: Optional[bool] = None,
-    order_by: str = Query("created_at", regex="^(created_at|publish_time|title)$"),
+    date: Optional[str] = None,
+    order_by: str = Query("created_at", regex="^(created_at|publish_time|original_title|translated_title)$"),
     order_desc: bool = Query(True)
 ):
     """获取新闻文章列表"""
@@ -36,6 +37,7 @@ async def get_articles(
             source_id=source_id,
             language=language,
             is_processed=is_processed,
+            date=date,
             order_by=order_by,
             order_desc=order_desc
         )
@@ -44,13 +46,19 @@ async def get_articles(
             "articles": [
                 {
                     "id": article.id,
-                    "title": article.title,
-                    "content": article.content[:200] + "..." if len(article.content) > 200 else article.content,
+                    "original_title": article.original_title,
+                    "translated_title": article.translated_title,
+                    "display_title": article.translated_title if article.translated_title else article.original_title,
+                    "original_content": article.original_content[:200] + "..." if len(article.original_content) > 200 else article.original_content,
+                    "translated_content": article.translated_content[:200] + "..." if article.translated_content and len(article.translated_content) > 200 else article.translated_content,
                     "source_url": article.source_url,
                     "source_name": article.source_name,
                     "publish_time": article.publish_time,
                     "category": article.category,
-                    "language": article.language,
+                    "original_language": article.original_language,
+                    "is_title_translated": article.is_title_translated,
+                    "is_content_translated": article.is_content_translated,
+                    "translation_quality_score": article.translation_quality_score,
                     "quality_score": article.quality_score,
                     "is_processed": article.is_processed,
                     "created_at": article.created_at
@@ -81,20 +89,26 @@ async def get_article(article_id: int):
         
         return {
             "id": article.id,
-            "title": article.title,
-            "content": article.content,
+            "original_title": article.original_title,
+            "translated_title": article.translated_title,
+            "display_title": article.translated_title if article.translated_title else article.original_title,
+            "original_content": article.original_content,
+            "translated_content": article.translated_content,
             "source_url": article.source_url,
             "source_name": article.source_name,
             "publish_time": article.publish_time,
             "category": article.category,
-            "language": article.language,
+            "original_language": article.original_language,
+            "is_title_translated": article.is_title_translated,
+            "is_content_translated": article.is_content_translated,
+            "translation_quality_score": article.translation_quality_score,
             "quality_score": article.quality_score,
             "is_processed": article.is_processed,
             "created_at": article.created_at,
             "processed_content": {
                 "summary_zh": processed_content.summary_zh if processed_content else None,
+                "detailed_summary_zh": processed_content.detailed_summary_zh if processed_content else None,
                 "summary_en": processed_content.summary_en if processed_content else None,
-                "translation_zh": processed_content.translation_zh if processed_content else None,
                 "quality_score": processed_content.quality_score if processed_content else None,
                 "processing_time": processed_content.processing_time if processed_content else None
             } if processed_content else None
@@ -119,11 +133,16 @@ async def search_articles(
             "articles": [
                 {
                     "id": article.id,
-                    "title": article.title,
-                    "content": article.content[:200] + "..." if len(article.content) > 200 else article.content,
+                    "original_title": article.original_title,
+                    "translated_title": article.translated_title,
+                    "display_title": article.translated_title if article.translated_title else article.original_title,
+                    "original_content": article.original_content[:200] + "..." if len(article.original_content) > 200 else article.original_content,
+                    "translated_content": article.translated_content[:200] + "..." if article.translated_content and len(article.translated_content) > 200 else article.translated_content,
                     "source_url": article.source_url,
                     "source_name": article.source_name,
                     "category": article.category,
+                    "original_language": article.original_language,
+                    "is_title_translated": article.is_title_translated,
                     "created_at": article.created_at
                 }
                 for article in articles

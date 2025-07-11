@@ -159,6 +159,20 @@ class WebCrawler:
                 # 通用解析策略
                 articles = self._parse_generic(soup, source)
             
+            # 为每个文章获取完整内容
+            for article in articles:
+                if article.get('source_url') and not article.get('content'):
+                    try:
+                        full_content = await self._get_full_content(article['source_url'])
+                        if full_content:
+                            article['content'] = full_content
+                        else:
+                            # 如果获取失败，使用标题作为内容
+                            article['content'] = article['title']
+                    except Exception as e:
+                        logger.warning(f"Failed to get full content for {article['source_url']}: {e}")
+                        article['content'] = article['title']
+            
             return articles[:settings.max_articles_per_source]
             
         except Exception as e:
@@ -213,11 +227,11 @@ class WebCrawler:
             content = await self.page.content()
             soup = BeautifulSoup(content, 'html.parser')
             
-            # 移除脚本和样式
-            for script in soup(["script", "style"]):
-                script.decompose()
+            # 移除脚本、样式、导航、页脚等无关内容
+            for element in soup(["script", "style", "nav", "header", "footer", "aside", "menu"]):
+                element.decompose()
             
-            # 尝试找到主要内容
+            # 尝试找到主要内容 - 更全面的选择器
             content_selectors = [
                 'article',
                 '.article-content',
@@ -225,18 +239,52 @@ class WebCrawler:
                 '.entry-content',
                 '.content',
                 'main',
-                '.main-content'
+                '.main-content',
+                '.story-content',
+                '.article-body',
+                '.post-body',
+                '.entry-body',
+                '.content-body',
+                '.text-content',
+                '.article-text',
+                '.story-text',
+                '[role="main"]',
+                '.article',
+                '.story'
             ]
             
             for selector in content_selectors:
                 element = soup.select_one(selector)
                 if element:
-                    return element.get_text(strip=True)
+                    text = element.get_text(strip=True)
+                    if len(text) > 100:  # 确保内容足够长
+                        return text
+            
+            # 尝试找到包含最多文本的段落
+            paragraphs = soup.find_all('p')
+            if paragraphs:
+                # 按文本长度排序，取最长的几个段落
+                paragraphs.sort(key=lambda p: len(p.get_text()), reverse=True)
+                content_parts = []
+                total_length = 0
+                
+                for p in paragraphs[:10]:  # 最多取10个段落
+                    text = p.get_text(strip=True)
+                    if len(text) > 20:  # 只取有意义的段落
+                        content_parts.append(text)
+                        total_length += len(text)
+                        if total_length > 500:  # 如果总长度超过500字符就停止
+                            break
+                
+                if content_parts:
+                    return ' '.join(content_parts)
             
             # 如果没有找到特定内容区域，返回body文本
             body = soup.find('body')
             if body:
-                return body.get_text(strip=True)
+                text = body.get_text(strip=True)
+                if len(text) > 100:
+                    return text
             
             return None
             

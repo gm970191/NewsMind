@@ -63,15 +63,64 @@
 
       <!-- 筛选和搜索 -->
       <el-row :gutter="20" class="filter-row">
-        <el-col :span="6">
-          <el-select v-model="selectedCategory" placeholder="选择分类" clearable @change="handleCategoryChange">
-            <el-option label="全部" value="" />
-            <el-option label="国际新闻" value="国际新闻" />
-            <el-option label="科技" value="科技" />
-            <el-option label="财经" value="财经" />
-            <el-option label="体育" value="体育" />
-          </el-select>
+        <!-- 分类按钮组 -->
+        <el-col :span="24" class="category-section">
+          <div class="category-buttons">
+            <el-button 
+              :type="selectedCategory === '' ? 'primary' : 'default'"
+              @click="handleCategorySelect('')"
+              size="large"
+            >
+              全部
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '科技' ? 'primary' : 'default'"
+              @click="handleCategorySelect('科技')"
+              size="large"
+            >
+              科技
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '财经' ? 'primary' : 'default'"
+              @click="handleCategorySelect('财经')"
+              size="large"
+            >
+              财经
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '军事' ? 'primary' : 'default'"
+              @click="handleCategorySelect('军事')"
+              size="large"
+            >
+              军事
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '政治' ? 'primary' : 'default'"
+              @click="handleCategorySelect('政治')"
+              size="large"
+            >
+              政治
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '国际' ? 'primary' : 'default'"
+              @click="handleCategorySelect('国际')"
+              size="large"
+            >
+              国际
+            </el-button>
+            <el-button 
+              :type="selectedCategory === '其他' ? 'primary' : 'default'"
+              @click="handleCategorySelect('其他')"
+              size="large"
+            >
+              其他
+            </el-button>
+          </div>
         </el-col>
+      </el-row>
+
+      <!-- 其他筛选选项 -->
+      <el-row :gutter="20" class="filter-row">
         <el-col :span="6">
           <el-select v-model="selectedDate" placeholder="选择日期" @change="handleDateChange">
             <el-option label="今日" value="today" />
@@ -85,9 +134,10 @@
           <el-select v-model="showType" placeholder="显示类型" @change="handleShowTypeChange">
             <el-option label="全部文章" value="all" />
             <el-option label="已处理文章" value="processed" />
+            <el-option label="未处理文章" value="unprocessed" />
           </el-select>
         </el-col>
-        <el-col :span="6">
+        <el-col :span="12">
           <el-input
             v-model="searchKeyword"
             placeholder="搜索文章..."
@@ -161,10 +211,17 @@ const pageSize = ref(20)
 
 // 计算属性
 const displayArticles = computed(() => {
+  // 根据显示类型返回对应的文章列表
   if (showType.value === 'processed') {
     return newsStore.processedArticles
+  } else if (showType.value === 'unprocessed') {
+    // 显示未处理的文章（在articles中但不在processedArticles中的）
+    const processedIds = new Set(newsStore.processedArticles.map(a => a.id))
+    return newsStore.articles.filter(a => !processedIds.has(a.id))
+  } else {
+    // 显示所有文章
+    return newsStore.articles
   }
-  return newsStore.articles
 })
 
 const statistics = computed(() => newsStore.statistics)
@@ -203,6 +260,12 @@ const handleProcessArticles = async () => {
   }
 }
 
+const handleCategorySelect = async (category) => {
+  selectedCategory.value = category
+  currentPage.value = 1
+  await fetchArticles()
+}
+
 const handleCategoryChange = async () => {
   currentPage.value = 1
   await fetchArticles()
@@ -215,12 +278,13 @@ const handleDateChange = async () => {
 
 const handleShowTypeChange = async () => {
   currentPage.value = 1
-  await fetchArticles()
+  // 重新获取数据以更新显示
+  await refreshData()
 }
 
 const handleSearch = async () => {
   if (!searchKeyword.value.trim()) {
-    await fetchArticles()
+    await refreshData()
     return
   }
   
@@ -228,6 +292,10 @@ const handleSearch = async () => {
     const result = await newsStore.searchArticles(searchKeyword.value)
     if (showType.value === 'processed') {
       newsStore.processedArticles = result.articles
+    } else if (showType.value === 'unprocessed') {
+      // 对于未处理文章，需要过滤搜索结果
+      const processedIds = new Set(newsStore.processedArticles.map(a => a.id))
+      newsStore.articles = result.articles.filter(a => !processedIds.has(a.id))
     } else {
       newsStore.articles = result.articles
     }
@@ -273,6 +341,7 @@ const fetchArticles = async (append = false) => {
     if (showType.value === 'processed') {
       await newsStore.fetchProcessedArticles(params)
     } else {
+      // 对于全部文章和未处理文章，都获取所有文章
       await newsStore.fetchArticles(params)
     }
   } catch (error) {
@@ -358,6 +427,42 @@ onMounted(async () => {
 
 .filter-row {
   margin-bottom: 20px;
+}
+
+.category-section {
+  margin-bottom: 15px;
+}
+
+.category-buttons {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 15px 0;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.category-buttons .el-button {
+  min-width: 100px;
+  border-radius: 20px;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.category-buttons .el-button:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.category-buttons .el-button--primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+}
+
+.category-buttons .el-button--primary:hover {
+  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
 }
 
 .articles-container {

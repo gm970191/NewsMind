@@ -89,6 +89,7 @@ class NewsRepository:
         source_id: Optional[int] = None,
         language: Optional[str] = None,
         is_processed: Optional[bool] = None,
+        date: Optional[str] = None,
         order_by: str = "created_at",
         order_desc: bool = True
     ) -> List[NewsArticle]:
@@ -101,9 +102,25 @@ class NewsRepository:
         if source_id:
             query = query.filter(NewsArticle.source_id == source_id)
         if language:
-            query = query.filter(NewsArticle.language == language)
+            query = query.filter(NewsArticle.original_language == language)
         if is_processed is not None:
             query = query.filter(NewsArticle.is_processed == is_processed)
+        if date:
+            # 处理日期过滤
+            from datetime import datetime, timedelta
+            from sqlalchemy import func
+            today = datetime.utcnow().date()
+            if date == "today":
+                query = query.filter(func.date(NewsArticle.created_at) == today)
+            elif date == "yesterday":
+                yesterday = today - timedelta(days=1)
+                query = query.filter(func.date(NewsArticle.created_at) == yesterday)
+            elif date == "week":
+                week_ago = today - timedelta(days=7)
+                query = query.filter(NewsArticle.created_at >= week_ago)
+            elif date == "month":
+                month_ago = today - timedelta(days=30)
+                query = query.filter(NewsArticle.created_at >= month_ago)
         
         # 排序
         if order_desc:
@@ -157,8 +174,10 @@ class NewsRepository:
         """搜索文章"""
         return self.db.query(NewsArticle).filter(
             or_(
-                NewsArticle.title.contains(keyword),
-                NewsArticle.content.contains(keyword)
+                NewsArticle.original_title.contains(keyword),
+                NewsArticle.translated_title.contains(keyword),
+                NewsArticle.original_content.contains(keyword),
+                NewsArticle.translated_content.contains(keyword)
             )
         ).order_by(desc(NewsArticle.created_at)).limit(limit).all()
     
@@ -176,6 +195,10 @@ class NewsRepository:
         return self.db.query(ProcessedContent).filter(
             ProcessedContent.article_id == article_id
         ).first()
+    
+    def get_processed_content_by_article_id(self, article_id: int) -> Optional[ProcessedContent]:
+        """根据文章ID获取处理结果（别名方法）"""
+        return self.get_processed_content(article_id)
     
     def update_processed_content(
         self, article_id: int, update_data: Dict[str, Any]
@@ -222,6 +245,7 @@ class NewsRepository:
         if min_quality:
             query = query.filter(ProcessedContent.quality_score >= min_quality)
         
+        # 明确指定排序字段，避免ambiguous column错误
         results = query.order_by(desc(NewsArticle.created_at)).offset(skip).limit(limit).all()
         
         return [
@@ -270,7 +294,7 @@ class NewsRepository:
             func.floor(ProcessedContent.quality_score).label('score_range')
         ).group_by(func.floor(ProcessedContent.quality_score)).all()
         
-        # 按分类统计
+        # 按分类统计 - 明确指定字段避免ambiguous column错误
         category_stats = self.db.query(
             NewsArticle.category,
             func.count(ProcessedContent.id).label('processed_count')
