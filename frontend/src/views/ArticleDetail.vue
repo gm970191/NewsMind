@@ -48,7 +48,9 @@
       </div>
       <div class="footer">
         <el-button type="primary" @click="goBack">返回</el-button>
-        <el-button v-if="!article.is_processed" type="success" @click="processArticle">立即AI处理</el-button>
+        <el-button v-if="!article.is_processed" type="success" @click="processArticleBasic">基础AI处理</el-button>
+        <el-button v-if="!article.is_content_translated" type="warning" @click="processArticleFull">完整AI处理</el-button>
+        <el-button v-if="article.is_processed && article.is_content_translated" type="info" disabled>AI处理完成</el-button>
       </div>
     </el-card>
   </div>
@@ -81,19 +83,36 @@ export default {
       }
     };
 
-    const processArticle = async () => {
+    const processArticleBasic = async () => {
       try {
-        ElMessage.info('正在AI处理中，请稍候...');
+        ElMessage.info('正在进行基础AI处理（标题翻译+概要生成），请稍候...');
         const response = await axios.post(`/api/v1/ai/process/${route.params.id}`);
-        console.log('AI处理响应:', response.data);
-        ElMessage.success(response.data.message || 'AI处理已完成！');
+        console.log('基础AI处理响应:', response.data);
+        ElMessage.success(response.data.message || '基础AI处理已完成！');
         await fetchArticle(); // 重新获取文章数据
       } catch (e) {
-        console.error('AI处理失败:', e);
+        console.error('基础AI处理失败:', e);
         const errorMsg = e.response?.data?.detail || e.response?.data?.message || e.message;
-        ElMessage.error('AI处理失败: ' + errorMsg);
+        ElMessage.error('基础AI处理失败: ' + errorMsg);
       }
     };
+
+    const processArticleFull = async () => {
+      try {
+        ElMessage.info('正在进行完整AI处理（翻译正文+详细总结），请稍候...');
+        const response = await axios.post(`/api/v1/ai/process-full/${route.params.id}`);
+        console.log('完整AI处理响应:', response.data);
+        ElMessage.success(response.data.message || '完整AI处理已完成！');
+        await fetchArticle(); // 重新获取文章数据
+      } catch (e) {
+        console.error('完整AI处理失败:', e);
+        const errorMsg = e.response?.data?.detail || e.response?.data?.message || e.message;
+        ElMessage.error('完整AI处理失败: ' + errorMsg);
+      }
+    };
+
+    // 保留原来的方法名以兼容
+    const processArticle = processArticleBasic;
 
     const goBack = () => {
       router.back();
@@ -124,6 +143,8 @@ export default {
       article,
       loading,
       processArticle,
+      processArticleBasic,
+      processArticleFull,
       goBack,
       formatDate,
       renderMarkdown,
@@ -278,9 +299,13 @@ export default {
   font-style: italic;
 }
 .footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 16px;
   margin-top: 24px;
+  display: flex;
+  gap: 12px;
+  justify-content: flex-start;
+}
+
+.footer .el-button {
+  min-width: 120px;
 }
 </style> 

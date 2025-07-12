@@ -55,6 +55,38 @@ async def process_single_article(article_id: int):
         db.close()
 
 
+@router.post("/process-full/{article_id}")
+async def process_article_full(article_id: int):
+    """完整处理单篇文章 - 翻译正文和生成详细总结"""
+    try:
+        db = next(get_db()) # Changed from SessionLocal() to next(get_db())
+        repo = NewsRepository(db)
+        
+        # 获取文章
+        article = repo.get_article_by_id(article_id)
+        if not article:
+            raise HTTPException(status_code=404, detail="Article not found")
+        
+        # 使用AI处理器进行完整处理
+        processor = AIProcessor(repo)
+        
+        # 完整处理：翻译正文和生成详细总结
+        success = await processor.process_article_full(article)
+        
+        if success:
+            return {"message": f"Article {article_id} fully processed successfully"}
+        else:
+            raise HTTPException(status_code=500, detail="Failed to process article")
+            
+    except Exception as e:
+        # logger.error(f"Error in full processing article {article_id}: {e}") # Original code had this line commented out
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        # if 'db' in locals(): # Original code had this line commented out
+        #     db.close() # Original code had this line commented out
+        db.close() # Added this line to close the database session
+
+
 @router.get("/statistics")
 async def get_ai_statistics():
     """获取AI处理统计信息"""

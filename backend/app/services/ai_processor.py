@@ -118,40 +118,44 @@ class AIProcessor:
         return results
     
     async def process_single_article(self, article: NewsArticle) -> bool:
-        """处理单篇文章"""
+        """处理单篇文章 - 简化版：只翻译标题和生成概要"""
         try:
             start_time = time.time()
+            
             # 1. 生成中文摘要
             summary_zh = await self._generate_summary_zh(article.original_content)
             if not summary_zh:
                 logger.error(f"Failed to generate Chinese summary for article {article.id}")
                 return False
-            # 2. 生成详细摘要（可选，或与summary_zh一致）
+            
+            # 2. 生成详细摘要（与概要相同）
             detailed_summary_zh = summary_zh
+            
             # 3. 翻译标题为中文（如原文为英文）
             translated_title = None
             if article.original_language == 'en' and article.original_title:
                 translated_title = await self._translate_title_to_chinese(article.original_title)
-            # 4. 翻译正文为中文（如原文为英文）
+            
+            # 4. 不翻译正文（简化处理）
             translation_zh = None
-            if article.original_language == 'en':
-                translation_zh = await self._translate_to_chinese(article.original_content)
+            
             # 5. 质量分数
             quality_score = 7.0
+            
             # 6. 保存到news_articles表
             update_data = {
                 'summary_zh': summary_zh,
                 'detailed_summary_zh': detailed_summary_zh,
                 'translated_title': translated_title,
-                'translated_content': translation_zh,
+                'translated_content': translation_zh,  # 保持为None
                 'quality_score': quality_score,
                 'is_processed': True,
                 'is_title_translated': translated_title is not None,
-                'is_content_translated': translation_zh is not None,
-                'translation_quality_score': 9.0 if translation_zh else 0.0
+                'is_content_translated': False,  # 后台不翻译正文
+                'translation_quality_score': 0.0  # 不翻译正文，分数为0
             }
             self.repo.update_article(article.id, update_data)
-            logger.info(f"Successfully processed article {article.id}")
+            logger.info(f"Successfully processed article {article.id} (simplified)")
             return True
         except Exception as e:
             logger.error(f"Error processing article {article.id}: {e}")
@@ -373,3 +377,89 @@ class AIProcessor:
         except Exception as e:
             logger.error(f"Error getting processing stats: {e}")
             return {} 
+
+    async def process_article_full(self, article: NewsArticle) -> bool:
+        """完整处理单篇文章 - 翻译正文和生成详细总结"""
+        try:
+            start_time = time.time()
+            
+            # 1. 生成中文摘要
+            summary_zh = await self._generate_summary_zh(article.original_content)
+            if not summary_zh:
+                logger.error(f"Failed to generate Chinese summary for article {article.id}")
+                return False
+            
+            # 2. 生成详细摘要（更详细的总结）
+            detailed_summary_zh = await self._generate_detailed_summary_zh(article.original_content)
+            if not detailed_summary_zh:
+                detailed_summary_zh = summary_zh  # 如果详细摘要失败，使用普通摘要
+            
+            # 3. 翻译标题为中文（如原文为英文）
+            translated_title = None
+            if article.original_language == 'en' and article.original_title:
+                translated_title = await self._translate_title_to_chinese(article.original_title)
+            
+            # 4. 翻译正文为中文（如原文为英文）
+            translation_zh = None
+            if article.original_language == 'en':
+                translation_zh = await self._translate_to_chinese(article.original_content)
+            
+            # 5. 质量分数
+            quality_score = 8.0 if translation_zh else 7.0
+            
+            # 6. 保存到news_articles表
+            update_data = {
+                'summary_zh': summary_zh,
+                'detailed_summary_zh': detailed_summary_zh,
+                'translated_title': translated_title,
+                'translated_content': translation_zh,
+                'quality_score': quality_score,
+                'is_processed': True,
+                'is_title_translated': translated_title is not None,
+                'is_content_translated': translation_zh is not None,
+                'translation_quality_score': 9.0 if translation_zh else 0.0
+            }
+            self.repo.update_article(article.id, update_data)
+            logger.info(f"Successfully fully processed article {article.id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error in full processing article {article.id}: {e}")
+            return False
+
+    async def _generate_detailed_summary_zh(self, content: str) -> Optional[str]:
+        """生成详细的中文摘要"""
+        try:
+            # 分割长文本
+            if len(content) > 2000:
+                chunks = self.text_splitter.split_text(content)
+                summaries = []
+                for chunk in chunks[:3]:  # 最多处理前3个chunk
+                    summary = await self._generate_summary_zh(chunk)
+                    if summary:
+                        summaries.append(summary)
+                return " ".join(summaries) if summaries else None
+            else:
+                # 对于较短的文本，生成更详细的摘要
+                prompt = f"""请为以下文章生成一个详细的中文总结，要求：
+1. 总结文章的主要内容和关键信息
+2. 分析文章的观点和立场
+3. 指出文章的重要细节和背景信息
+4. 总结文章的影响和意义
+5. 语言要准确、流畅、易懂
+
+文章内容：
+{content[:1500]}
+
+请生成详细的中文总结："""
+
+                messages = [
+                    SystemMessage(content="你是一个专业的新闻分析师，擅长生成详细、准确的中文新闻总结。"),
+                    HumanMessage(content=prompt)
+                ]
+                
+                response = await self.llm.ainvoke(messages)
+                return response.content.strip()
+                
+        except Exception as e:
+            logger.error(f"Error generating detailed summary: {e}")
+            return None 

@@ -13,11 +13,15 @@ def run_news_crawl():
     try:
         print(f"🔄 开始新闻采集 - {datetime.now()}")
         
+        # 确保在项目根目录下执行
+        project_root = Path(__file__).parent.parent
+        script_path = project_root / "scripts" / "simple_news_crawler.py"
+        
         # 运行新闻采集脚本
         result = subprocess.run([
             sys.executable, 
-            "scripts/simple_news_crawler.py"
-        ], capture_output=True, text=True)
+            str(script_path)
+        ], cwd=project_root, capture_output=True, text=True)
         
         if result.returncode == 0:
             print(f"✅ 新闻采集成功 - {datetime.now()}")
