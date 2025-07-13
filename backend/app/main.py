@@ -8,6 +8,7 @@ from app.core.config import settings
 from app.core.logging import setup_logging
 from app.api.news import router as news_router
 from app.api.ai import router as ai_router
+from app.services.scheduler import news_scheduler
 
 # Setup logging
 setup_logging()
@@ -33,6 +34,25 @@ app.add_middleware(
 # Include API routers
 app.include_router(news_router, prefix=settings.api_prefix)
 app.include_router(ai_router, prefix=settings.api_prefix)
+
+# 启动调度器
+@app.on_event("startup")
+async def startup_event():
+    """应用启动时初始化调度器"""
+    try:
+        news_scheduler.start()
+        print("✅ 新闻调度器已启动")
+    except Exception as e:
+        print(f"❌ 调度器启动失败: {e}")
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """应用关闭时停止调度器"""
+    try:
+        news_scheduler.stop()
+        print("✅ 新闻调度器已停止")
+    except Exception as e:
+        print(f"❌ 调度器停止失败: {e}")
 
 
 @app.get("/")

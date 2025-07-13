@@ -1,311 +1,308 @@
 <template>
   <div class="article-detail">
-    <el-card class="article-card">
-      <div class="header">
-        <h2>{{ getDisplayTitle() }}</h2>
-        <div v-if="article.original_language !== 'zh' && article.original_title" class="original-title">
-          <span>原文：{{ article.original_title }}</span>
-        </div>
-        <div class="meta">
-          <span>来源：{{ article.source_name }}</span>
-          <span>分类：{{ article.category }}</span>
-          <span>发布时间：{{ formatDate(article.publish_time || article.created_at) }}</span>
+    <!-- 顶部导航 -->
+    <el-header class="header">
+      <div class="header-content">
+        <el-button @click="goBack" :icon="ArrowLeft" plain>
+          返回
+        </el-button>
+        <h1 class="page-title">文章详情</h1>
+        <div class="header-actions">
+          <el-button 
+            v-if="article && article.source_url" 
+            type="primary" 
+            @click="openOriginal"
+            :icon="Link"
+          >
+            原文链接
+          </el-button>
         </div>
       </div>
-      <el-divider></el-divider>
-      <div v-if="article.summary_zh || article.detailed_summary_zh">
-        <div v-if="article.summary_zh" class="section">
-          <h3>中文概要</h3>
-          <p class="summary">{{ article.summary_zh }}</p>
+    </el-header>
+
+    <!-- 主要内容 -->
+    <el-main class="main-content" v-loading="loading">
+      <div v-if="article" class="article-container">
+        <!-- 文章头部信息 -->
+        <div class="article-header">
+          <div class="article-meta">
+            <span class="source-name">{{ article.source_name }}</span>
+            <span class="category-tag" v-if="article.category">{{ article.category }}</span>
+            <span class="publish-time">{{ formatTime(article.created_at) }}</span>
+          </div>
+          
+          <!-- 翻译状态 -->
+          <div class="translation-status" v-if="article.is_translated">
+            <el-tag type="success">
+              <el-icon><Check /></el-icon>
+              已翻译
+            </el-tag>
+          </div>
         </div>
-        <div v-if="article.detailed_summary_zh" class="section">
-          <h3>正文总结</h3>
-          <div class="detailed-summary">
-            <div class="content-text markdown-content" v-html="renderMarkdown(article.detailed_summary_zh)"></div>
+
+        <!-- 文章内容 -->
+        <div class="article-content">
+          <!-- 中文内容 -->
+          <div v-if="article.translated_title || article.translated_summary" class="content-section chinese-content">
+            <h2 class="section-title">
+              <el-icon><ChatDotRound /></el-icon>
+              中文内容
+            </h2>
+            
+            <h1 class="article-title">{{ article.translated_title }}</h1>
+            <div class="article-summary">{{ article.translated_summary }}</div>
+          </div>
+
+          <!-- 原文内容 -->
+          <div class="content-section original-content">
+            <h2 class="section-title">
+              <el-icon><Document /></el-icon>
+              原文内容
+            </h2>
+            
+            <h1 class="article-title">{{ article.original_title }}</h1>
+            <div class="article-summary">{{ article.original_summary }}</div>
           </div>
         </div>
       </div>
-      <div v-else>
-        <el-alert title="该新闻尚未AI处理，暂无AI摘要和详细总结。" type="info" show-icon></el-alert>
-      </div>
-      <el-divider></el-divider>
-      <div v-if="article.translated_content" class="section">
-        <h3>中文翻译</h3>
-        <div class="translation-content">
-          <div class="content-text">
-            {{ article.translated_content }}
-          </div>
-        </div>
-      </div>
-      
-      <div class="section">
-        <h3>原始正文</h3>
-        <div class="origin-content">
-          <div class="content-text">
-            {{ article.original_content }}
-          </div>
-        </div>
-      </div>
-      <div class="footer">
-        <el-button type="primary" @click="goBack">返回</el-button>
-        <el-button v-if="!article.is_processed" type="success" @click="processArticleBasic">基础AI处理</el-button>
-        <el-button v-if="!article.is_content_translated" type="warning" @click="processArticleFull">完整AI处理</el-button>
-        <el-button v-if="article.is_processed && article.is_content_translated" type="info" disabled>AI处理完成</el-button>
-      </div>
-    </el-card>
+
+      <!-- 加载失败 -->
+      <el-empty 
+        v-else-if="!loading" 
+        description="文章不存在或已被删除"
+      >
+        <el-button type="primary" @click="goBack">返回首页</el-button>
+      </el-empty>
+    </el-main>
   </div>
 </template>
 
-<script>
-import { ref, onMounted } from 'vue';
-import { useRoute, useRouter } from 'vue-router';
-import axios from 'axios';
-import { ElMessage } from 'element-plus';
-import MarkdownIt from 'markdown-it';
+<script setup>
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { ElMessage } from 'element-plus'
+import { ArrowLeft, Link, Check, ChatDotRound, Document } from '@element-plus/icons-vue'
 
-export default {
-  name: 'ArticleDetail',
-  setup() {
-    const route = useRoute();
-    const router = useRouter();
-    const article = ref({});
-    const loading = ref(false);
+const route = useRoute()
+const router = useRouter()
 
-    const fetchArticle = async () => {
-      loading.value = true;
-      try {
-        const { data } = await axios.get(`/api/v1/news/articles/${route.params.id}`);
-        article.value = data;
-      } catch (e) {
-        ElMessage.error('获取文章详情失败');
-      } finally {
-        loading.value = false;
-      }
-    };
+// 响应式数据
+const article = ref(null)
+const loading = ref(true)
 
-    const processArticleBasic = async () => {
-      try {
-        ElMessage.info('正在进行基础AI处理（标题翻译+概要生成），请稍候...');
-        const response = await axios.post(`/api/v1/ai/process/${route.params.id}`);
-        console.log('基础AI处理响应:', response.data);
-        ElMessage.success(response.data.message || '基础AI处理已完成！');
-        await fetchArticle(); // 重新获取文章数据
-      } catch (e) {
-        console.error('基础AI处理失败:', e);
-        const errorMsg = e.response?.data?.detail || e.response?.data?.message || e.message;
-        ElMessage.error('基础AI处理失败: ' + errorMsg);
-      }
-    };
-
-    const processArticleFull = async () => {
-      try {
-        ElMessage.info('正在进行完整AI处理（翻译正文+详细总结），请稍候...');
-        const response = await axios.post(`/api/v1/ai/process-full/${route.params.id}`);
-        console.log('完整AI处理响应:', response.data);
-        ElMessage.success(response.data.message || '完整AI处理已完成！');
-        await fetchArticle(); // 重新获取文章数据
-      } catch (e) {
-        console.error('完整AI处理失败:', e);
-        const errorMsg = e.response?.data?.detail || e.response?.data?.message || e.message;
-        ElMessage.error('完整AI处理失败: ' + errorMsg);
-      }
-    };
-
-    // 保留原来的方法名以兼容
-    const processArticle = processArticleBasic;
-
-    const goBack = () => {
-      router.back();
-    };
-
-    const formatDate = (dateStr) => {
-      if (!dateStr) return '';
-      return new Date(dateStr).toLocaleString('zh-CN');
-    };
-
-    const renderMarkdown = (text) => {
-      if (!text) return '';
-      const md = new MarkdownIt();
-      return md.render(text);
-    };
-
-    const getDisplayTitle = () => {
-      // 优先显示翻译后的标题，如果没有则显示原文标题
-      if (article.value.translated_title) {
-        return article.value.translated_title;
-      }
-      return article.value.original_title;
-    };
-
-    onMounted(fetchArticle);
-
-    return {
-      article,
-      loading,
-      processArticle,
-      processArticleBasic,
-      processArticleFull,
-      goBack,
-      formatDate,
-      renderMarkdown,
-      getDisplayTitle
-    };
+// 方法
+const fetchArticle = async () => {
+  const articleId = route.params.id
+  
+  if (!articleId) {
+    ElMessage.error('文章ID无效')
+    goBack()
+    return
   }
-};
+
+  loading.value = true
+  try {
+    const response = await fetch(`/api/v1/news/articles/${articleId}`)
+    
+    if (response.ok) {
+      article.value = await response.json()
+    } else if (response.status === 404) {
+      article.value = {} // 兜底，防止为 null
+      ElMessage.error('文章不存在')
+    } else {
+      article.value = {} // 兜底，防止为 null
+      ElMessage.error('获取文章失败')
+    }
+  } catch (error) {
+    article.value = {} // 兜底，防止为 null
+    ElMessage.error('获取文章失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+const formatTime = (timeStr) => {
+  if (!timeStr) return ''
+  
+  const date = new Date(timeStr)
+  return date.toLocaleString('zh-CN')
+}
+
+const goBack = () => {
+  router.push('/')
+}
+
+const openOriginal = () => {
+  if (article.value?.source_url) {
+    window.open(article.value.source_url, '_blank')
+  }
+}
+
+// 生命周期
+onMounted(() => {
+  fetchArticle()
+})
 </script>
 
 <style scoped>
 .article-detail {
-  max-width: 900px;
-  margin: 32px auto;
-  padding: 0 16px;
+  min-height: 100vh;
+  background-color: #f5f5f5;
 }
-.article-card {
-  box-shadow: 0 2px 12px #f0f1f2;
-  border-radius: 12px;
-  padding: 32px 24px;
-}
+
 .header {
-  margin-bottom: 12px;
-}
-.header h2 {
-  margin: 0 0 8px 0;
-  font-size: 2rem;
-  font-weight: bold;
-}
-.meta {
-  color: #888;
-  font-size: 0.95rem;
-  display: flex;
-  gap: 24px;
-}
-.section {
-  margin-bottom: 18px;
-}
-.summary {
-  font-size: 1.1rem;
-  color: #333;
-  background: #f8f8fa;
-  padding: 12px 16px;
-  border-radius: 6px;
-  line-height: 1.7;
-}
-.detailed-summary {
-  background: #f6f8ff;
-  padding: 14px 16px;
-  border-radius: 6px;
-  font-size: 1rem;
-  color: #222;
-}
-.original-content {
-  background: #f9f9f9;
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 1rem;
-  color: #444;
-}
-.origin-content {
-  background: #f4f4f4;
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 0.98rem;
-  color: #666;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
 }
 
-.translation-content {
-  background: #f0f8ff;
-  padding: 10px 14px;
-  border-radius: 6px;
-  font-size: 0.98rem;
-  color: #333;
+.header-content {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 100%;
+  padding: 0 20px;
 }
-.original-title {
-  margin: 8px 0;
-}
-.original-title span {
-  font-size: 0.9rem;
-  color: #888;
-  font-weight: normal;
+
+.page-title {
   margin: 0;
-  font-style: italic;
-}
-.content-text {
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  line-height: 1.6;
+  font-size: 20px;
+  font-weight: 600;
 }
 
-.markdown-content {
-  white-space: normal;
-}
-
-.markdown-content h1,
-.markdown-content h2,
-.markdown-content h3,
-.markdown-content h4,
-.markdown-content h5,
-.markdown-content h6 {
-  margin: 16px 0 8px 0;
-  font-weight: bold;
-  color: #333;
-}
-
-.markdown-content h1 {
-  font-size: 1.8rem;
-  border-bottom: 2px solid #e1e4e8;
-  padding-bottom: 8px;
-}
-
-.markdown-content h2 {
-  font-size: 1.5rem;
-  border-bottom: 1px solid #e1e4e8;
-  padding-bottom: 6px;
-}
-
-.markdown-content h3 {
-  font-size: 1.3rem;
-}
-
-.markdown-content p {
-  margin: 8px 0;
-  line-height: 1.6;
-}
-
-.markdown-content ul,
-.markdown-content ol {
-  margin: 8px 0;
-  padding-left: 24px;
-}
-
-.markdown-content li {
-  margin: 4px 0;
-  line-height: 1.6;
-}
-
-.markdown-content strong {
-  font-weight: bold;
-  color: #333;
-}
-
-.markdown-content em {
-  font-style: italic;
-}
-
-.markdown-content blockquote {
-  border-left: 4px solid #e1e4e8;
-  padding-left: 16px;
-  margin: 16px 0;
-  color: #666;
-  font-style: italic;
-}
-.footer {
-  margin-top: 24px;
+.header-actions {
   display: flex;
-  gap: 12px;
-  justify-content: flex-start;
+  gap: 10px;
 }
 
-.footer .el-button {
-  min-width: 120px;
+.main-content {
+  padding: 20px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.article-container {
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.article-header {
+  padding: 20px;
+  border-bottom: 1px solid #e4e7ed;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8f9fa;
+}
+
+.article-meta {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.source-name {
+  font-weight: 600;
+  color: #409eff;
+}
+
+.category-tag {
+  background: #409eff;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+
+.publish-time {
+  color: #666;
+  font-size: 14px;
+}
+
+.translation-status {
+  display: flex;
+  align-items: center;
+}
+
+.article-content {
+  padding: 0;
+}
+
+.content-section {
+  padding: 30px;
+  border-bottom: 1px solid #e4e7ed;
+}
+
+.content-section:last-child {
+  border-bottom: none;
+}
+
+.chinese-content {
+  background: #f8fff8;
+}
+
+.original-content {
+  background: #f8f9fa;
+}
+
+.section-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #303133;
+  margin: 0 0 20px 0;
+  padding-bottom: 10px;
+  border-bottom: 2px solid #409eff;
+}
+
+.chinese-content .section-title {
+  color: #67c23a;
+  border-bottom-color: #67c23a;
+}
+
+.article-title {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.3;
+  color: #303133;
+  margin: 0 0 20px 0;
+}
+
+.article-summary {
+  font-size: 16px;
+  line-height: 1.6;
+  color: #606266;
+  white-space: pre-wrap;
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .main-content {
+    padding: 10px;
+  }
+  
+  .article-header {
+    padding: 15px;
+    flex-direction: column;
+    gap: 10px;
+    align-items: flex-start;
+  }
+  
+  .content-section {
+    padding: 20px;
+  }
+  
+  .article-title {
+    font-size: 20px;
+  }
+  
+  .article-summary {
+    font-size: 14px;
+  }
 }
 </style> 

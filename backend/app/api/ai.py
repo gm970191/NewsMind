@@ -1,5 +1,5 @@
 """
-AI processing API endpoints
+AI processing API endpoints - 简化版
 """
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Query
@@ -11,11 +11,11 @@ from app.services.ai_processor import AIProcessor
 router = APIRouter(prefix="/ai", tags=["ai"])
 
 
-@router.post("/process")
-async def process_articles(
-    limit: int = Query(10, ge=1, le=50, description="处理文章数量限制")
+@router.post("/translate")
+async def translate_articles(
+    limit: int = Query(10, ge=1, le=50, description="翻译文章数量限制")
 ):
-    """批量处理未处理的文章"""
+    """批量翻译未翻译的文章"""
     db = next(get_db())
     repo = NewsRepository(db)
     
@@ -24,18 +24,18 @@ async def process_articles(
         results = await processor.process_articles(limit)
         
         return {
-            "message": "AI processing completed",
+            "message": "AI translation completed",
             "results": results
         }
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
     finally:
         db.close()
 
 
-@router.post("/process/{article_id}")
-async def process_single_article(article_id: int):
-    """处理单篇文章"""
+@router.post("/translate/{article_id}")
+async def translate_single_article(article_id: int):
+    """翻译单篇文章"""
     db = next(get_db())
     repo = NewsRepository(db)
     
@@ -45,60 +45,26 @@ async def process_single_article(article_id: int):
         
         if success:
             return {
-                "message": f"Article {article_id} processed successfully"
+                "message": f"Article {article_id} translated successfully"
             }
         else:
-            raise HTTPException(status_code=404, detail="Article not found or processing failed")
+            raise HTTPException(status_code=404, detail="Article not found or translation failed")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Processing failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Translation failed: {str(e)}")
     finally:
         db.close()
 
 
-@router.post("/process-full/{article_id}")
-async def process_article_full(article_id: int):
-    """完整处理单篇文章 - 翻译正文和生成详细总结"""
-    try:
-        db = next(get_db()) # Changed from SessionLocal() to next(get_db())
-        repo = NewsRepository(db)
-        
-        # 获取文章
-        article = repo.get_article_by_id(article_id)
-        if not article:
-            raise HTTPException(status_code=404, detail="Article not found")
-        
-        # 使用AI处理器进行完整处理
-        processor = AIProcessor(repo)
-        
-        # 完整处理：翻译正文和生成详细总结
-        success = await processor.process_article_full(article)
-        
-        if success:
-            return {"message": f"Article {article_id} fully processed successfully"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to process article")
-            
-    except Exception as e:
-        # logger.error(f"Error in full processing article {article_id}: {e}") # Original code had this line commented out
-        raise HTTPException(status_code=500, detail=str(e))
-    finally:
-        # if 'db' in locals(): # Original code had this line commented out
-        #     db.close() # Original code had this line commented out
-        db.close() # Added this line to close the database session
-
-
 @router.get("/statistics")
 async def get_ai_statistics():
-    """获取AI处理统计信息"""
+    """获取AI翻译统计信息"""
     db = next(get_db())
     repo = NewsRepository(db)
     
     try:
-        processor = AIProcessor(repo)
-        stats = await processor.get_processing_stats()
-        
+        stats = repo.get_statistics()
         return {
-            "ai_processing_statistics": stats
+            "translation_statistics": stats
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
@@ -106,60 +72,39 @@ async def get_ai_statistics():
         db.close()
 
 
-@router.get("/unprocessed-count")
-async def get_unprocessed_count():
-    """获取未处理文章数量"""
+@router.get("/untranslated-count")
+async def get_untranslated_count():
+    """获取未翻译文章数量"""
     db = next(get_db())
     repo = NewsRepository(db)
     
     try:
-        unprocessed_articles = repo.get_unprocessed_articles(limit=1000)  # 获取所有未处理文章
-        count = len(unprocessed_articles)
+        count = repo.get_untranslated_count()
         
         return {
-            "unprocessed_count": count
+            "untranslated_count": count
         }
     finally:
         db.close()
 
 
-@router.get("/article-status/{article_id}")
-async def get_article_processing_status(article_id: int):
-    """获取文章的处理状态"""
+@router.post("/trigger-translation")
+async def trigger_translation():
+    """手动触发AI翻译（用于测试或紧急处理）"""
     db = next(get_db())
     repo = NewsRepository(db)
     
     try:
-        # 获取文章信息
-        article = repo.get_article_by_id(article_id)
-        if not article:
-            raise HTTPException(status_code=404, detail="Article not found")
+        from app.services.scheduler import news_scheduler
         
-        # 直接从文章对象获取AI处理结果
-        has_summary_zh = article.summary_zh and len(article.summary_zh.strip()) > 0
-        has_detailed_summary_zh = article.detailed_summary_zh and len(article.detailed_summary_zh.strip()) > 0
-        has_translation = article.translated_content and len(article.translated_content.strip()) > 0
-        
-        needs_summary = not has_summary_zh or not has_detailed_summary_zh
-        needs_translation = article.original_language not in ['zh', 'zh-CN'] and not has_translation
+        # 直接调用翻译逻辑
+        await news_scheduler._trigger_ai_translation(db, repo)
         
         return {
-            "article_id": article_id,
-            "original_title": article.original_title,
-            "translated_title": article.translated_title,
-            "display_title": article.translated_title if article.translated_title else article.original_title,
-            "original_language": article.original_language,
-            "is_processed": article.is_processed,
-            "has_summary_zh": has_summary_zh,
-            "has_detailed_summary_zh": has_detailed_summary_zh,
-            "has_translation": has_translation,
-            "needs_summary": needs_summary,
-            "needs_translation": needs_translation,
-            "needs_processing": needs_summary or needs_translation
+            "message": "AI translation triggered successfully",
+            "note": "Check logs for detailed results"
         }
-    except HTTPException:
-        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Translation trigger failed: {str(e)}")
     finally:
         db.close() 

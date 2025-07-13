@@ -10,7 +10,7 @@ from apscheduler.triggers.cron import CronTrigger
 from apscheduler.triggers.interval import IntervalTrigger
 
 from app.core.config import settings
-from app.services.crawler import WebCrawler
+from app.services.crawler import NewsCrawler
 from app.services.news_service import NewsRepository
 from app.core.database import SessionLocal
 
@@ -74,10 +74,15 @@ class NewsScheduler:
             db = SessionLocal()
             repo = NewsRepository(db)
             
-            async with WebCrawler(repo) as crawler:
+            async with NewsCrawler(repo) as crawler:
                 results = await crawler.crawl_news_sources()
                 
                 logger.info(f"News collection completed: {results}")
+                
+                # 抓取完成后主动触发AI翻译
+                if results and results.get('new_articles', 0) > 0:
+                    logger.info(f"触发主动AI翻译，新文章数量: {results.get('new_articles', 0)}")
+                    await self._trigger_ai_translation(db, repo)
                 
                 # 记录任务执行结果
                 self._log_job_result('crawl', results)
@@ -118,17 +123,35 @@ class NewsScheduler:
         try:
             db = SessionLocal()
             repo = NewsRepository(db)
-            from app.services.ai_processor import AIProcessor
-            processor = AIProcessor(repo)
-            results = await processor.process_articles(limit=10)  # 每次最多处理10篇，可根据需要调整
-            logger.info(f"AI process completed: {results}")
-            self._log_job_result('ai_process', results)
+            await self._trigger_ai_translation(db, repo)
         except Exception as e:
             logger.error(f"Error in AI process job: {e}")
             self._log_job_result('ai_process', {'error': str(e)})
         finally:
             if 'db' in locals():
                 db.close()
+
+    async def _trigger_ai_translation(self, db, repo):
+        """触发AI翻译处理"""
+        try:
+            from app.services.ai_processor import AIProcessor
+            processor = AIProcessor(repo)
+            
+            # 获取未翻译文章数量
+            untranslated_count = repo.get_untranslated_count()
+            logger.info(f"发现 {untranslated_count} 篇未翻译文章")
+            
+            if untranslated_count > 0:
+                # 每次最多处理10篇，避免过度占用资源
+                results = await processor.process_articles(limit=10)
+                logger.info(f"AI翻译完成: {results}")
+                self._log_job_result('ai_process', results)
+            else:
+                logger.info("没有需要翻译的文章")
+                
+        except Exception as e:
+            logger.error(f"AI翻译处理失败: {e}")
+            self._log_job_result('ai_process', {'error': str(e)})
     
     def _log_job_result(self, job_type: str, result: dict):
         """记录任务执行结果"""

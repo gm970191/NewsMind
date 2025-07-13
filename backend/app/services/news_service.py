@@ -1,246 +1,91 @@
 """
-News service layer - Repository pattern implementation
+News service - 简化版
 """
-from datetime import datetime, timedelta
+import logging
 from typing import List, Optional, Dict, Any
-
+from datetime import datetime, timedelta
 from sqlalchemy.orm import Session
-from sqlalchemy import desc, asc, and_, or_, func
+from sqlalchemy import desc, func
 
 from app.models.news import NewsArticle, NewsSource
-from app.core.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class NewsRepository:
-    """新闻数据访问层"""
+    """新闻数据仓库 - 简化版"""
     
     def __init__(self, db: Session):
         self.db = db
     
-    # NewsSource operations
-    def create_source(self, source_data: Dict[str, Any]) -> NewsSource:
-        """创建新闻源"""
-        source = NewsSource(**source_data)
-        self.db.add(source)
-        self.db.commit()
-        self.db.refresh(source)
-        return source
-    
-    def get_source_by_id(self, source_id: int) -> Optional[NewsSource]:
-        """根据ID获取新闻源"""
-        return self.db.query(NewsSource).filter(NewsSource.id == source_id).first()
-    
-    def get_source_by_url(self, url: str) -> Optional[NewsSource]:
-        """根据URL获取新闻源"""
-        return self.db.query(NewsSource).filter(NewsSource.url == url).first()
-    
     def get_active_sources(self) -> List[NewsSource]:
-        """获取所有活跃的新闻源"""
+        """获取活跃的新闻源"""
         return self.db.query(NewsSource).filter(NewsSource.is_active == True).all()
     
-    def get_sources_by_category(self, category: str) -> List[NewsSource]:
-        """根据分类获取新闻源"""
-        return self.db.query(NewsSource).filter(
-            and_(NewsSource.category == category, NewsSource.is_active == True)
-        ).all()
-    
-    def update_source(self, source_id: int, update_data: Dict[str, Any]) -> Optional[NewsSource]:
-        """更新新闻源"""
-        source = self.get_source_by_id(source_id)
-        if source:
-            for key, value in update_data.items():
-                setattr(source, key, value)
-            source.updated_at = datetime.utcnow()
-            self.db.commit()
-            self.db.refresh(source)
-        return source
-    
-    def delete_source(self, source_id: int) -> bool:
-        """删除新闻源"""
-        source = self.get_source_by_id(source_id)
-        if source:
-            self.db.delete(source)
-            self.db.commit()
-            return True
-        return False
-    
-    # NewsArticle operations
-    def create_article(self, article_data: Dict[str, Any]) -> NewsArticle:
-        """创建新闻文章"""
-        article = NewsArticle(**article_data)
-        self.db.add(article)
-        self.db.commit()
-        self.db.refresh(article)
-        return article
+    def get_articles(self, limit: int = 20, skip: int = 0) -> List[NewsArticle]:
+        """获取新闻文章列表"""
+        return self.db.query(NewsArticle).order_by(desc(NewsArticle.created_at)).offset(skip).limit(limit).all()
     
     def get_article_by_id(self, article_id: int) -> Optional[NewsArticle]:
-        """根据ID获取新闻文章"""
+        """根据ID获取文章"""
         return self.db.query(NewsArticle).filter(NewsArticle.id == article_id).first()
     
-    def get_article_by_url(self, source_url: str) -> Optional[NewsArticle]:
-        """根据URL获取新闻文章"""
-        return self.db.query(NewsArticle).filter(NewsArticle.source_url == source_url).first()
+    def get_untranslated_articles(self, limit: int = 10) -> List[NewsArticle]:
+        """获取未翻译的文章"""
+        return self.db.query(NewsArticle).filter(NewsArticle.is_translated == False).order_by(desc(NewsArticle.created_at)).limit(limit).all()
     
-    def get_articles(
-        self,
-        skip: int = 0,
-        limit: int = 100,
-        category: Optional[str] = None,
-        source_id: Optional[int] = None,
-        language: Optional[str] = None,
-        is_processed: Optional[bool] = None,
-        date: Optional[str] = None,
-        order_by: str = "created_at",
-        order_desc: bool = True
-    ) -> List[NewsArticle]:
-        """获取新闻文章列表"""
-        query = self.db.query(NewsArticle)
-        
-        # 添加过滤条件
-        if category:
-            query = query.filter(NewsArticle.category == category)
-        if source_id:
-            query = query.filter(NewsArticle.source_id == source_id)
-        if language:
-            query = query.filter(NewsArticle.original_language == language)
-        if is_processed is not None:
-            query = query.filter(NewsArticle.is_processed == is_processed)
-        if date:
-            # 处理日期过滤
-            from datetime import datetime, timedelta
-            from sqlalchemy import func
-            today = datetime.utcnow().date()
-            if date == "today":
-                query = query.filter(func.date(NewsArticle.created_at) == today)
-            elif date == "yesterday":
-                yesterday = today - timedelta(days=1)
-                query = query.filter(func.date(NewsArticle.created_at) == yesterday)
-            elif date == "week":
-                week_ago = today - timedelta(days=7)
-                query = query.filter(NewsArticle.created_at >= week_ago)
-            elif date == "month":
-                month_ago = today - timedelta(days=30)
-                query = query.filter(NewsArticle.created_at >= month_ago)
-        
-        # 排序
-        if order_desc:
-            query = query.order_by(desc(getattr(NewsArticle, order_by)))
-        else:
-            query = query.order_by(asc(getattr(NewsArticle, order_by)))
-        
-        return query.offset(skip).limit(limit).all()
+    def get_untranslated_count(self) -> int:
+        """获取未翻译文章数量"""
+        return self.db.query(func.count(NewsArticle.id)).filter(NewsArticle.is_translated == False).scalar()
     
-    def get_recent_articles(self, days: int = 7) -> List[NewsArticle]:
-        """获取最近几天的文章"""
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        return self.db.query(NewsArticle).filter(
-            NewsArticle.created_at >= cutoff_date
-        ).order_by(desc(NewsArticle.created_at)).all()
-    
-    def update_article(self, article_id: int, update_data: Dict[str, Any]) -> Optional[NewsArticle]:
-        """更新新闻文章"""
-        article = self.get_article_by_id(article_id)
-        if article:
-            for key, value in update_data.items():
-                setattr(article, key, value)
-            article.updated_at = datetime.utcnow()
+    def save_article(self, article_data: Dict[str, Any]) -> Optional[NewsArticle]:
+        """保存文章"""
+        try:
+            # 检查是否已存在
+            existing = self.db.query(NewsArticle).filter(NewsArticle.source_url == article_data['source_url']).first()
+            if existing:
+                return existing
+            
+            article = NewsArticle(**article_data)
+            self.db.add(article)
             self.db.commit()
             self.db.refresh(article)
-        return article
+            return article
+        except Exception as e:
+            logger.error(f"保存文章失败: {e}")
+            self.db.rollback()
+            return None
     
-    def update_article_processed_status(self, article_id: int, is_processed: bool) -> bool:
-        """更新文章处理状态"""
-        article = self.get_article_by_id(article_id)
-        if article:
-            article.is_processed = is_processed
-            article.updated_at = datetime.utcnow()
-            self.db.commit()
-            return True
-        return False
+    def update_article_translation(self, article_id: int, translated_title: str, translated_summary: str) -> bool:
+        """更新文章翻译"""
+        try:
+            article = self.db.query(NewsArticle).filter(NewsArticle.id == article_id).first()
+            if article:
+                article.translated_title = translated_title
+                article.translated_summary = translated_summary
+                article.is_translated = True
+                self.db.commit()
+                return True
+            return False
+        except Exception as e:
+            logger.error(f"更新翻译失败: {e}")
+            self.db.rollback()
+            return False
     
-    def delete_old_articles(self, days: int = None) -> int:
-        """删除旧文章"""
-        if days is None:
-            days = settings.content_retention_days
-        
-        cutoff_date = datetime.utcnow() - timedelta(days=days)
-        deleted_count = self.db.query(NewsArticle).filter(
-            NewsArticle.created_at < cutoff_date
-        ).delete()
-        self.db.commit()
-        return deleted_count
-    
-    def search_articles(self, keyword: str, limit: int = 50) -> List[NewsArticle]:
-        """搜索文章"""
-        return self.db.query(NewsArticle).filter(
-            or_(
-                NewsArticle.original_title.contains(keyword),
-                NewsArticle.translated_title.contains(keyword),
-                NewsArticle.original_content.contains(keyword),
-                NewsArticle.translated_content.contains(keyword)
-            )
-        ).order_by(desc(NewsArticle.created_at)).limit(limit).all()
-    
-    def get_unprocessed_articles(self, limit: int = 10) -> List[NewsArticle]:
-        """获取未处理的新闻文章"""
-        return self.db.query(NewsArticle).filter(NewsArticle.is_processed == False).order_by(desc(NewsArticle.created_at)).limit(limit).all()
-    
-    # Statistics
     def get_statistics(self) -> Dict[str, Any]:
         """获取统计信息"""
-        total_articles = self.db.query(NewsArticle).count()
-        processed_articles = self.db.query(NewsArticle).filter(
-            NewsArticle.is_processed == True
-        ).count()
-        total_sources = self.db.query(NewsSource).filter(
-            NewsSource.is_active == True
-        ).count()
-        
-        return {
-            "total_articles": total_articles,
-            "processed_articles": processed_articles,
-            "unprocessed_articles": total_articles - processed_articles,
-            "total_sources": total_sources,
-            "processing_rate": (processed_articles / total_articles * 100) if total_articles > 0 else 0
-        }
-    
-    def get_processing_statistics(self) -> Dict[str, Any]:
-        """获取AI处理统计信息"""
-        # 基础统计
-        total_processed = self.db.query(NewsArticle).filter(NewsArticle.is_processed == True).count()
-        
-        # 平均质量分数
-        avg_quality = self.db.query(func.avg(NewsArticle.quality_score)).scalar()
-        avg_quality = round(float(avg_quality), 2) if avg_quality else 0.0
-        
-        # 平均处理时间
-        avg_processing_time = self.db.query(func.avg(NewsArticle.processing_time)).scalar()
-        avg_processing_time = round(float(avg_processing_time), 2) if avg_processing_time else 0.0
-        
-        # 质量分布
-        quality_distribution = self.db.query(
-            func.count(NewsArticle.id).label('count'),
-            func.floor(NewsArticle.quality_score).label('score_range')
-        ).group_by(func.floor(NewsArticle.quality_score)).all()
-        
-        # 按分类统计 - 明确指定字段避免ambiguous column错误
-        category_stats = self.db.query(
-            NewsArticle.category,
-            func.count(NewsArticle.id).label('processed_count')
-        ).filter(NewsArticle.is_processed == True).group_by(
-            NewsArticle.category
-        ).all()
-        
-        return {
-            "total_processed": total_processed,
-            "average_quality_score": avg_quality,
-            "average_processing_time": avg_processing_time,
-            "quality_distribution": [
-                {"score_range": int(item.score_range), "count": item.count}
-                for item in quality_distribution
-            ],
-            "category_statistics": [
-                {"category": item.category, "processed_count": item.processed_count}
-                for item in category_stats
-            ]
-        } 
+        try:
+            total_articles = self.db.query(func.count(NewsArticle.id)).scalar()
+            translated_articles = self.db.query(func.count(NewsArticle.id)).filter(NewsArticle.is_translated == True).scalar()
+            untranslated_articles = total_articles - translated_articles
+            total_sources = self.db.query(func.count(NewsSource.id)).filter(NewsSource.is_active == True).scalar()
+            
+            return {
+                "total_articles": total_articles,
+                "translated_articles": translated_articles,
+                "untranslated_articles": untranslated_articles,
+                "total_sources": total_sources
+            }
+        except Exception as e:
+            logger.error(f"获取统计信息失败: {e}")
+            return {} 

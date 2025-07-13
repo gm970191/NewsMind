@@ -16,7 +16,7 @@ lxml==5.1.0
 feedparser==6.0.11
 
 # AI Services
-langchain-deepseek==0.1.3
+# 已移除DeepSeek依赖
 langchain-core==0.3.68
 openai==1.93.2
 

@@ -2,107 +2,60 @@
   <el-card 
     class="news-card" 
     :body-style="{ padding: '0px' }"
-    @click="$emit('click')"
-    hover
+    @click="handleClick"
+    :class="{ 'translated': article.is_translated }"
   >
     <!-- 卡片头部 -->
     <div class="card-header">
       <div class="source-info">
-        <div class="source-left">
-          <span class="source-name">{{ article.source_name }}</span>
-          <el-tag 
-            :type="getCategoryType(article.category)" 
-            size="small"
-            class="category-tag"
-          >
-            {{ article.category }}
-          </el-tag>
-        </div>
-        <div class="time-info">
-          <span class="collect-date">收集: {{ formatDate(article.created_at) }}</span>
-          <span v-if="article.publish_time" class="publish-date">发布: {{ formatDate(article.publish_time) }}</span>
-        </div>
+        <span class="source-name">{{ article.source_name }}</span>
+        <span class="category-tag" v-if="article.category">{{ article.category }}</span>
+      </div>
+      <div class="time-info">
+        {{ formatTime(article.created_at) }}
       </div>
     </div>
 
     <!-- 卡片内容 -->
     <div class="card-content">
+      <!-- 标题 -->
       <h3 class="article-title">
-        {{ getDisplayTitle() }}
-        <span v-if="article.original_language !== 'zh' && article.original_title && article.translated_title" class="origin-title" style="font-size:13px;color:#888;margin-left:6px;">（{{ article.original_title }}）</span>
+        {{ displayTitle }}
       </h3>
-      <!-- 显示中文概要或原文预览 -->
-      <div v-if="article.summary_zh" class="summary-section">
-        <div class="summary-content">
-          {{ article.summary_zh }}
-        </div>
-      </div>
-      <!-- 未处理文章显示原文预览 -->
-      <div v-else-if="article.translated_content || article.original_content" class="unprocessed-content">
-        <div class="content-preview">
-          {{ truncateContent(article.translated_content || article.original_content, 200) }}
-        </div>
-      </div>
-      
-      <!-- 质量评分 -->
-      <div v-if="article.quality_score" class="quality-score">
-        <el-rate 
-          :model-value="qualityScore" 
-          disabled 
-          show-score 
-          text-color="#ff9900"
-          score-template="{value}"
-        />
+
+      <!-- 概要 -->
+      <p class="article-summary">
+        {{ displaySummary }}
+      </p>
+
+      <!-- 翻译状态指示器 -->
+      <div class="translation-status" v-if="article.is_translated">
+        <el-tag type="success" size="small">
+          <el-icon><Check /></el-icon>
+          已翻译
+        </el-tag>
       </div>
     </div>
 
     <!-- 卡片底部 -->
     <div class="card-footer">
-      <div class="footer-left">
-        <el-button 
-          link
-          size="small" 
-          @click.stop="handleViewDetail"
-        >
-          查看详情
-        </el-button>
-        <el-button 
-          v-if="article.source_url" 
-          link
-          size="small" 
-          @click.stop="handleViewOriginal"
-        >
-          原文链接
-        </el-button>
-      </div>
-      <div class="footer-right">
-        <el-button 
-          v-if="!article.is_processed" 
-          type="primary" 
-          size="small" 
-          @click.stop="handleProcess"
-          :loading="processing"
-        >
-          AI总结
-        </el-button>
-        <el-button 
-          v-else
-          type="info" 
-          size="small" 
-          disabled
-        >
-          AI总结
-        </el-button>
-      </div>
+      <el-button 
+        type="primary" 
+        size="small" 
+        @click.stop="handleDetailClick"
+        plain
+      >
+        查看详情
+      </el-button>
     </div>
   </el-card>
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { useNewsStore } from '../stores/news'
+import { Check } from '@element-plus/icons-vue'
 
 const props = defineProps({
   article: {
@@ -112,115 +65,57 @@ const props = defineProps({
 })
 
 const emit = defineEmits(['click', 'refresh'])
-
 const router = useRouter()
-const newsStore = useNewsStore()
-
-// 响应式数据
-const activeTab = ref('zh')
-const processing = ref(false)
-
-// 监听文章变化，设置默认标签页
-watch(() => props.article, (newArticle) => {
-  if (newArticle) {
-    // 如果是非中文新闻且有翻译，默认显示翻译
-    if (newArticle.original_language !== 'zh' && newArticle.translated_content) {
-      activeTab.value = 'translation'
-    } else {
-      activeTab.value = 'zh'
-    }
-  }
-}, { immediate: true })
 
 // 计算属性
-const qualityScore = computed(() => {
-  if (props.article.quality_score) {
-    return props.article.quality_score / 2 // 转换为5分制
-  }
-  return 0
+const displayTitle = computed(() => {
+  return props.article.translated_title || props.article.original_title
+})
+
+const displaySummary = computed(() => {
+  return props.article.translated_summary || props.article.original_summary
 })
 
 // 方法
-const getCategoryType = (category) => {
-  const typeMap = {
-    '科技': 'success',
-    '财经': 'warning',
-    '军事': 'danger',
-    '政治': 'primary',
-    '国际': 'info',
-    '其他': 'info'
-  }
-  return typeMap[category] || 'info'
-}
-
 const formatTime = (timeStr) => {
   if (!timeStr) return ''
+  
   const date = new Date(timeStr)
   const now = new Date()
   const diff = now - date
   
-  if (diff < 60000) return '刚刚'
-  if (diff < 3600000) return `${Math.floor(diff / 60000)}分钟前`
-  if (diff < 86400000) return `${Math.floor(diff / 3600000)}小时前`
-  return date.toLocaleDateString()
-}
-
-const formatDate = (timeStr) => {
-  if (!timeStr) return ''
-  const date = new Date(timeStr)
-  return date.toLocaleDateString()
-}
-
-const truncateContent = (content, maxLength = 300) => {
-  if (!content) return ''
-  return content.length > maxLength 
-    ? content.substring(0, maxLength) + '...' 
-    : content
-}
-
-const getDisplayTitle = () => {
-  // 优先显示中文翻译标题，如果没有则显示原文
-  if (props.article.translated_title) {
-    return props.article.translated_title
+  // 小于1小时
+  if (diff < 3600000) {
+    const minutes = Math.floor(diff / 60000)
+    return `${minutes}分钟前`
   }
-  return props.article.original_title
+  
+  // 小于24小时
+  if (diff < 86400000) {
+    const hours = Math.floor(diff / 3600000)
+    return `${hours}小时前`
+  }
+  
+  // 小于7天
+  if (diff < 604800000) {
+    const days = Math.floor(diff / 86400000)
+    return `${days}天前`
+  }
+  
+  // 超过7天显示具体日期
+  return date.toLocaleDateString('zh-CN')
 }
 
-const handleViewDetail = () => {
-  // 验证文章ID是否有效
+const handleClick = () => {
+  emit('click', props.article)
+}
+
+const handleDetailClick = () => {
   if (!props.article.id || props.article.id <= 0) {
     ElMessage.error('文章ID无效')
     return
   }
   router.push(`/article/${props.article.id}`)
-}
-
-const handleViewOriginal = () => {
-  if (props.article.source_url) {
-    window.open(props.article.source_url, '_blank')
-  }
-}
-
-const handleProcess = async () => {
-  processing.value = true
-  try {
-    // 调用单篇文章处理API
-    const response = await fetch(`/api/v1/ai/process/${props.article.id}`, {
-      method: 'POST'
-    })
-    
-    if (response.ok) {
-      ElMessage.success('AI处理完成')
-      // 触发父组件刷新数据
-      emit('refresh')
-    } else {
-      ElMessage.error('AI处理失败')
-    }
-  } catch (error) {
-    ElMessage.error('AI处理失败')
-  } finally {
-    processing.value = false
-  }
 }
 </script>
 
@@ -229,29 +124,31 @@ const handleProcess = async () => {
   height: 100%;
   cursor: pointer;
   transition: all 0.3s ease;
-  border: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #e4e7ed;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
 .news-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  transform: translateY(-4px);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15);
+  border-color: #409eff;
+}
+
+.news-card.translated {
+  border-color: #67c23a;
 }
 
 .card-header {
   padding: 12px 16px;
-  border-bottom: 1px solid #f0f0f0;
-  background-color: #fafafa;
-}
-
-.source-info {
+  background: #f8f9fa;
+  border-bottom: 1px solid #e4e7ed;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 4px;
 }
 
-.source-left {
+.source-info {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -264,33 +161,23 @@ const handleProcess = async () => {
 }
 
 .category-tag {
+  background: #409eff;
+  color: white;
+  padding: 2px 6px;
+  border-radius: 4px;
   font-size: 10px;
 }
 
 .time-info {
-  display: flex;
-  gap: 12px;
   font-size: 11px;
-  color: #999;
-}
-
-.collect-date, .publish-date {
-  font-size: 10px;
-  color: #666;
-}
-
-.collect-date {
-  color: #409eff;
-  font-weight: 500;
-}
-
-.publish-date {
   color: #999;
 }
 
 .card-content {
   padding: 16px;
   flex: 1;
+  display: flex;
+  flex-direction: column;
 }
 
 .article-title {
@@ -298,101 +185,61 @@ const handleProcess = async () => {
   font-size: 16px;
   font-weight: 600;
   line-height: 1.4;
-  color: #333;
+  color: #303133;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.summary-section {
-  margin-top: 12px;
-}
-
-.summary-tabs {
-  margin-bottom: 12px;
-}
-
-.summary-content {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #666;
-  max-height: 200px;
-  overflow: hidden;
+.article-summary {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  line-height: 1.5;
+  color: #606266;
   display: -webkit-box;
-  -webkit-line-clamp: 8;
+  -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
-  margin-bottom: 8px;
-  white-space: pre-wrap;
-}
-
-.quality-score {
-  text-align: center;
-  margin-top: 8px;
-}
-
-.unprocessed-content {
-  margin-top: 12px;
-}
-
-.content-preview {
-  font-size: 13px;
-  line-height: 1.6;
-  color: #666;
-  margin-bottom: 8px;
-  max-height: 150px;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 5;
-  -webkit-box-orient: vertical;
+  text-overflow: ellipsis;
+  flex: 1;
+}
+
+.translation-status {
+  margin-top: auto;
+  display: flex;
+  justify-content: flex-end;
 }
 
 .card-footer {
   padding: 12px 16px;
-  border-top: 1px solid #f0f0f0;
-  background-color: #fafafa;
+  border-top: 1px solid #e4e7ed;
+  background: #fafafa;
   display: flex;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: center;
 }
 
-.footer-left {
-  display: flex;
-  gap: 8px;
-}
-
-.footer-right {
-  display: flex;
-  gap: 8px;
-}
-
-.footer-right .el-button--info.is-disabled {
-  background-color: #f5f7fa;
-  border-color: #e4e7ed;
-  color: #c0c4cc;
-  cursor: not-allowed;
-}
-
-.footer-right .el-button--info.is-disabled:hover {
-  background-color: #f5f7fa;
-  border-color: #e4e7ed;
-  color: #c0c4cc;
-}
-
-:deep(.el-tabs__header) {
-  margin-bottom: 8px;
-}
-
-:deep(.el-tabs__nav-wrap) {
-  padding: 0;
-}
-
-:deep(.el-tabs__item) {
-  font-size: 12px;
-  padding: 0 8px;
-}
-
-:deep(.el-tabs__content) {
-  padding: 0;
+/* 响应式设计 */
+@media (max-width: 768px) {
+  .card-header {
+    padding: 8px 12px;
+  }
+  
+  .card-content {
+    padding: 12px;
+  }
+  
+  .card-footer {
+    padding: 8px 12px;
+  }
+  
+  .article-title {
+    font-size: 14px;
+  }
+  
+  .article-summary {
+    font-size: 13px;
+  }
 }
 </style> 

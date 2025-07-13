@@ -33,7 +33,7 @@ def start_development_server():
         print("-" * 50)
         
         uvicorn.run(
-            app,
+            "app.main:app",
             host="0.0.0.0",
             port=8000,
             reload=True,
@@ -61,7 +61,7 @@ def start_production_server():
         print("-" * 50)
         
         uvicorn.run(
-            app,
+            "app.main:app",
             host="0.0.0.0",
             port=8000,
             reload=False,

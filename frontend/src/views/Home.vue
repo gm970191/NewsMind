@@ -10,11 +10,19 @@
         <div class="header-actions">
           <el-button 
             type="primary" 
-            :loading="loading" 
-            @click="handleProcessArticles"
+            :loading="crawling" 
+            @click="handleCrawlNews"
             :icon="Refresh"
           >
-            AI处理 ({{ unprocessedCount }})
+            抓取新闻
+          </el-button>
+          <el-button 
+            type="success" 
+            :loading="translating" 
+            @click="handleTranslateNews"
+            :icon="Refresh"
+          >
+            AI翻译 ({{ untranslatedCount }})
           </el-button>
           <el-button @click="refreshData" :icon="Refresh" :loading="loading">
             刷新
@@ -38,16 +46,16 @@
         <el-col :span="6">
           <el-card class="stat-card">
             <div class="stat-item">
-              <div class="stat-number">{{ statistics.processed_articles || 0 }}</div>
-              <div class="stat-label">已处理</div>
+              <div class="stat-number">{{ statistics.translated_articles || 0 }}</div>
+              <div class="stat-label">已翻译</div>
             </div>
           </el-card>
         </el-col>
         <el-col :span="6">
           <el-card class="stat-card">
             <div class="stat-item">
-              <div class="stat-number">{{ statistics.unprocessed_articles || 0 }}</div>
-              <div class="stat-label">待处理</div>
+              <div class="stat-number">{{ statistics.untranslated_articles || 0 }}</div>
+              <div class="stat-label">待翻译</div>
             </div>
           </el-card>
         </el-col>
@@ -61,98 +69,24 @@
         </el-col>
       </el-row>
 
-      <!-- 筛选和搜索 -->
-      <el-row :gutter="20" class="filter-row">
-        <!-- 分类按钮组 -->
-        <el-col :span="24" class="category-section">
-          <div class="category-buttons">
-            <el-button 
-              :type="selectedCategory === '' ? 'primary' : 'default'"
-              @click="handleCategorySelect('')"
-              size="large"
-            >
-              全部
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '科技' ? 'primary' : 'default'"
-              @click="handleCategorySelect('科技')"
-              size="large"
-            >
-              科技
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '财经' ? 'primary' : 'default'"
-              @click="handleCategorySelect('财经')"
-              size="large"
-            >
-              财经
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '军事' ? 'primary' : 'default'"
-              @click="handleCategorySelect('军事')"
-              size="large"
-            >
-              军事
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '政治' ? 'primary' : 'default'"
-              @click="handleCategorySelect('政治')"
-              size="large"
-            >
-              政治
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '国际' ? 'primary' : 'default'"
-              @click="handleCategorySelect('国际')"
-              size="large"
-            >
-              国际
-            </el-button>
-            <el-button 
-              :type="selectedCategory === '其他' ? 'primary' : 'default'"
-              @click="handleCategorySelect('其他')"
-              size="large"
-            >
-              其他
-            </el-button>
-          </div>
-        </el-col>
-      </el-row>
-
-      <!-- 其他筛选选项 -->
-      <el-row :gutter="20" class="filter-row">
-        <el-col :span="6">
-          <el-select v-model="selectedDate" placeholder="选择日期" @change="handleDateChange">
-            <el-option label="今日" value="today" />
-            <el-option label="昨日" value="yesterday" />
-            <el-option label="本周" value="week" />
-            <el-option label="本月" value="month" />
-            <el-option label="全部" value="" />
-          </el-select>
-        </el-col>
-        <el-col :span="6">
-          <el-select v-model="showType" placeholder="显示类型" @change="handleShowTypeChange">
-            <el-option label="全部文章" value="all" />
-            <el-option label="已处理文章" value="processed" />
-            <el-option label="未处理文章" value="unprocessed" />
-          </el-select>
-        </el-col>
-        <el-col :span="12">
-          <el-input
-            v-model="searchKeyword"
-            placeholder="搜索文章..."
-            :prefix-icon="Search"
-            @keyup.enter="handleSearch"
-            clearable
-          />
-        </el-col>
-      </el-row>
+      <!-- 分类标签 -->
+      <div class="category-bar">
+        <el-tag
+          v-for="cat in simpleCategories"
+          :key="cat"
+          :type="selectedCategory === cat ? 'primary' : 'info'"
+          @click="selectedCategory = cat"
+          class="category-tag"
+        >
+          {{ cat }}
+        </el-tag>
+      </div>
 
       <!-- 新闻卡片列表 -->
       <div class="articles-container">
         <el-row :gutter="20">
           <el-col 
-            v-for="article in displayArticles" 
+            v-for="article in filteredArticles" 
             :key="article.id" 
             :xs="24" 
             :sm="12" 
@@ -182,7 +116,7 @@
 
         <!-- 空状态 -->
         <el-empty 
-          v-if="!loading && displayArticles.length === 0" 
+          v-if="!loading && articles.length === 0" 
           description="暂无新闻数据"
         />
       </div>
@@ -194,7 +128,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Refresh } from '@element-plus/icons-vue'
 import { useNewsStore } from '../stores/news'
 import NewsCard from '../components/NewsCard.vue'
 
@@ -202,38 +136,29 @@ const router = useRouter()
 const newsStore = useNewsStore()
 
 // 响应式数据
-const selectedCategory = ref('')
-const selectedDate = ref('today')  // 默认显示今日新闻
-const showType = ref('all')
-const searchKeyword = ref('')
 const currentPage = ref(1)
 const pageSize = ref(20)
+const crawling = ref(false)
+const translating = ref(false)
 
 // 计算属性
-const displayArticles = computed(() => {
-  // 根据显示类型返回对应的文章列表
-  if (showType.value === 'processed') {
-    return newsStore.processedArticles
-  } else if (showType.value === 'unprocessed') {
-    // 显示未处理的文章（在articles中但不在processedArticles中的）
-    const processedIds = new Set(newsStore.processedArticles.map(a => a.id))
-    return newsStore.articles.filter(a => !processedIds.has(a.id))
-  } else {
-    // 显示所有文章
-    return newsStore.articles
-  }
-})
-
+const articles = computed(() => newsStore.articles)
 const statistics = computed(() => newsStore.statistics)
 const loading = computed(() => newsStore.loading)
-const unprocessedCount = computed(() => statistics.value.unprocessed_articles || 0)
+const untranslatedCount = computed(() => statistics.value.untranslated_articles || 0)
 const hasMore = computed(() => {
-  // 基于当前显示的文章数量判断是否还有更多数据
-  const currentCount = displayArticles.value.length
+  const currentCount = articles.value.length
   const totalCount = statistics.value.total_articles || 0
-  
-  // 如果当前显示数量小于总数，说明还有更多数据
   return currentCount < totalCount
+})
+
+const selectedCategory = ref('全部')
+const simpleCategories = ['全部', '军事', '科技', '政治']
+
+// 只保留三类的筛选
+const filteredArticles = computed(() => {
+  if (selectedCategory.value === '全部') return articles.value
+  return articles.value.filter(a => a.category === selectedCategory.value)
 })
 
 // 方法
@@ -241,8 +166,7 @@ const refreshData = async () => {
   try {
     await Promise.all([
       newsStore.fetchStatistics(),
-      newsStore.fetchArticles({ limit: pageSize.value }),
-      newsStore.fetchProcessedArticles({ limit: pageSize.value })
+      newsStore.fetchArticles({ limit: pageSize.value })
     ])
     ElMessage.success('数据刷新成功')
   } catch (error) {
@@ -250,62 +174,49 @@ const refreshData = async () => {
   }
 }
 
-const handleProcessArticles = async () => {
+const handleCrawlNews = async () => {
+  crawling.value = true
   try {
-    const result = await newsStore.processArticles(5)
-    ElMessage.success(`AI处理完成: ${result.results.success_count} 篇成功`)
-    await refreshData()
-  } catch (error) {
-    ElMessage.error('AI处理失败')
-  }
-}
-
-const handleCategorySelect = async (category) => {
-  selectedCategory.value = category
-  currentPage.value = 1
-  await fetchArticles()
-}
-
-const handleCategoryChange = async () => {
-  currentPage.value = 1
-  await fetchArticles()
-}
-
-const handleDateChange = async () => {
-  currentPage.value = 1
-  await fetchArticles()
-}
-
-const handleShowTypeChange = async () => {
-  currentPage.value = 1
-  // 重新获取数据以更新显示
-  await refreshData()
-}
-
-const handleSearch = async () => {
-  if (!searchKeyword.value.trim()) {
-    await refreshData()
-    return
-  }
-  
-  try {
-    const result = await newsStore.searchArticles(searchKeyword.value)
-    if (showType.value === 'processed') {
-      newsStore.processedArticles = result.articles
-    } else if (showType.value === 'unprocessed') {
-      // 对于未处理文章，需要过滤搜索结果
-      const processedIds = new Set(newsStore.processedArticles.map(a => a.id))
-      newsStore.articles = result.articles.filter(a => !processedIds.has(a.id))
+    const response = await fetch('/api/v1/news/crawl', {
+      method: 'POST'
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      ElMessage.success(`抓取完成: ${result.new_articles} 篇新文章`)
+      await refreshData()
     } else {
-      newsStore.articles = result.articles
+      ElMessage.error('抓取失败')
     }
   } catch (error) {
-    ElMessage.error('搜索失败')
+    ElMessage.error('抓取失败')
+  } finally {
+    crawling.value = false
+  }
+}
+
+const handleTranslateNews = async () => {
+  translating.value = true
+  try {
+    const response = await fetch('/api/v1/ai/translate', {
+      method: 'POST'
+    })
+    
+    if (response.ok) {
+      const result = await response.json()
+      ElMessage.success(`翻译完成: ${result.results.success_count} 篇成功`)
+      await refreshData()
+    } else {
+      ElMessage.error('翻译失败')
+    }
+  } catch (error) {
+    ElMessage.error('翻译失败')
+  } finally {
+    translating.value = false
   }
 }
 
 const handleArticleClick = (article) => {
-  // 验证文章ID是否有效
   if (!article.id || article.id <= 0) {
     ElMessage.error('文章ID无效')
     return
@@ -315,7 +226,7 @@ const handleArticleClick = (article) => {
 
 const loadMore = async () => {
   currentPage.value++
-  await fetchArticles(true) // 传递true表示追加模式
+  await fetchArticles(true)
 }
 
 const fetchArticles = async (append = false) => {
@@ -324,26 +235,12 @@ const fetchArticles = async (append = false) => {
     limit: pageSize.value
   }
   
-  if (selectedCategory.value) {
-    params.category = selectedCategory.value
-  }
-
-  if (selectedDate.value) {
-    params.date = selectedDate.value
-  }
-  
-  // 如果是追加模式，添加append参数
   if (append) {
     params.append = true
   }
   
   try {
-    if (showType.value === 'processed') {
-      await newsStore.fetchProcessedArticles(params)
-    } else {
-      // 对于全部文章和未处理文章，都获取所有文章
-      await newsStore.fetchArticles(params)
-    }
+    await newsStore.fetchArticles(params)
   } catch (error) {
     ElMessage.error('获取文章失败')
   }
@@ -425,44 +322,15 @@ onMounted(async () => {
   color: #666;
 }
 
-.filter-row {
-  margin-bottom: 20px;
-}
-
-.category-section {
-  margin-bottom: 15px;
-}
-
-.category-buttons {
+.category-bar {
   display: flex;
   gap: 10px;
+  margin-bottom: 20px;
   flex-wrap: wrap;
-  justify-content: center;
-  padding: 15px 0;
-  background: white;
-  border-radius: 8px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
-
-.category-buttons .el-button {
-  min-width: 100px;
-  border-radius: 20px;
-  font-weight: 500;
-  transition: all 0.3s ease;
-}
-
-.category-buttons .el-button:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-}
-
-.category-buttons .el-button--primary {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-}
-
-.category-buttons .el-button--primary:hover {
-  background: linear-gradient(135deg, #5a6fd8 0%, #6a4190 100%);
+.category-tag {
+  cursor: pointer;
+  user-select: none;
 }
 
 .articles-container {

@@ -21,15 +21,14 @@ class Settings(BaseSettings):
     # 数据库配置
     database_url: str = "sqlite:///./newsmind.db"
     
-    # DeepSeek API配置 - 从环境变量读取
-    deepseek_api_key: str = ""
+    # AI配置 - 已移除DeepSeek，仅使用本地LM Studio
     
     class Config:
         env_file = ".env"
         case_sensitive = False
         # 字段名映射
         fields = {
-            'deepseek_api_key': {'env': 'DEEPSEEK_API_KEY'},
+            # 已移除DeepSeek配置
             'database_url': {'env': 'DATABASE_URL'},
         }
     
@@ -48,10 +47,7 @@ class Settings(BaseSettings):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         # 验证必需的配置 - 允许在开发环境中跳过API密钥验证
-        if not self.deepseek_api_key and not self.debug:
-            raise ValueError("DEEPSEEK_API_KEY 环境变量未设置。请在 .env 文件中设置您的 API 密钥。")
-        elif not self.deepseek_api_key:
-            print("⚠️  警告: DEEPSEEK_API_KEY 未设置，AI功能将不可用")
+        # AI功能使用本地LM Studio，无需API密钥
 
 
 # 全局配置实例
