@@ -116,7 +116,7 @@
 
         <!-- 空状态 -->
         <el-empty 
-          v-if="!loading && articles.length === 0" 
+          v-if="!loading && filteredArticles.length === 0" 
           description="暂无新闻数据"
         />
       </div>
@@ -137,7 +137,7 @@ const newsStore = useNewsStore()
 
 // 响应式数据
 const currentPage = ref(1)
-const pageSize = ref(20)
+const pageSize = ref(50)
 const crawling = ref(false)
 const translating = ref(false)
 
@@ -153,9 +153,7 @@ const hasMore = computed(() => {
 })
 
 const selectedCategory = ref('全部')
-const simpleCategories = ['全部', '军事', '科技', '政治']
-
-// 只保留三类的筛选
+const simpleCategories = ['全部', '政治', '国际', '财经', '科技']
 const filteredArticles = computed(() => {
   if (selectedCategory.value === '全部') return articles.value
   return articles.value.filter(a => a.category === selectedCategory.value)

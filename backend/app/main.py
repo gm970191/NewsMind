@@ -53,44 +53,59 @@ def _frontend_file(relative_path: str) -> Path | None:
     return None
 
 
+# 在调试机上实测：这些源当天有更新，标题和摘要都能用。
+DEFAULT_SOURCES = [
+    {
+        "name": "中国新闻网·国内",
+        "url": "https://www.chinanews.com.cn/rss/china.xml",
+        "type": "rss",
+        "category": "政治",
+    },
+    {
+        "name": "中国新闻网·国际",
+        "url": "https://www.chinanews.com.cn/rss/world.xml",
+        "type": "rss",
+        "category": "国际",
+    },
+    {
+        "name": "中国新闻网·财经",
+        "url": "https://www.chinanews.com.cn/rss/finance.xml",
+        "type": "rss",
+        "category": "财经",
+    },
+    {
+        "name": "IT之家",
+        "url": "https://www.ithome.com/rss/",
+        "type": "rss",
+        "category": "科技",
+    },
+]
+
+
 def ensure_database() -> None:
-    """建表，并在没有新闻源时写入默认 RSS。"""
+    """建表，并把新闻源同步成国内可访问的默认源。"""
     from app.core.database import SessionLocal, create_tables
-    from app.models.news import NewsSource
+    from app.models.news import NewsArticle, NewsSource
 
     create_tables()
-    defaults = [
-        {
-            "name": "BBC News",
-            "url": "http://feeds.bbci.co.uk/news/rss.xml",
-            "type": "rss",
-            "category": "国际",
-        },
-        {
-            "name": "CNN",
-            "url": "http://rss.cnn.com/rss/edition.rss",
-            "type": "rss",
-            "category": "国际",
-        },
-        {
-            "name": "TechCrunch",
-            "url": "http://feeds.feedburner.com/TechCrunch/",
-            "type": "rss",
-            "category": "科技",
-        },
-        {
-            "name": "Reuters",
-            "url": "http://feeds.reuters.com/reuters/topNews",
-            "type": "rss",
-            "category": "国际",
-        },
-    ]
+    wanted = {item["url"]: item for item in DEFAULT_SOURCES}
     db = SessionLocal()
     try:
-        if db.query(NewsSource).count() > 0:
-            return
-        for item in defaults:
-            db.add(NewsSource(**item))
+        for source in db.query(NewsSource).all():
+            item = wanted.get(source.url)
+            if item is None:
+                db.query(NewsArticle).filter(NewsArticle.source_id == source.id).delete()
+                db.delete(source)
+                continue
+            source.name = item["name"]
+            source.type = item["type"]
+            source.category = item["category"]
+            source.is_active = True
+        db.flush()
+        have = {row.url for row in db.query(NewsSource.url).all()}
+        for url, item in wanted.items():
+            if url not in have:
+                db.add(NewsSource(**item, is_active=True))
         db.commit()
     except Exception:
         db.rollback()

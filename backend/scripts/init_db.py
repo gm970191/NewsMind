@@ -22,40 +22,29 @@ def init_default_sources():
     # 默认新闻源配置（RSS）
     default_sources = [
         {
-            "name": "CNN",
-            "url": "http://rss.cnn.com/rss/edition.rss",
+            "name": "中国新闻网·国内",
+            "url": "https://www.chinanews.com.cn/rss/china.xml",
+            "type": "rss",
+            "category": "政治",
+        },
+        {
+            "name": "中国新闻网·国际",
+            "url": "https://www.chinanews.com.cn/rss/world.xml",
             "type": "rss",
             "category": "国际",
-            "weight": 1.0
         },
         {
-            "name": "BBC News",
-            "url": "http://feeds.bbci.co.uk/news/rss.xml",
-            "type": "rss",
-            "category": "国际",
-            "weight": 1.0
-        },
-        {
-            "name": "Reuters",
-            "url": "http://feeds.reuters.com/reuters/topNews",
-            "type": "rss",
-            "category": "国际",
-            "weight": 1.0
-        },
-        {
-            "name": "TechCrunch",
-            "url": "http://feeds.feedburner.com/TechCrunch/",
-            "type": "rss",
-            "category": "科技",
-            "weight": 1.0
-        },
-        {
-            "name": "Bloomberg",
-            "url": "https://www.bloomberg.com/feed/podcast/etf-report.xml",
+            "name": "中国新闻网·财经",
+            "url": "https://www.chinanews.com.cn/rss/finance.xml",
             "type": "rss",
             "category": "财经",
-            "weight": 1.0
-        }
+        },
+        {
+            "name": "IT之家",
+            "url": "https://www.ithome.com/rss/",
+            "type": "rss",
+            "category": "科技",
+        },
     ]
     
     # 检查并创建新闻源
