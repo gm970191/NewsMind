@@ -16,14 +16,6 @@
           >
             抓取新闻
           </el-button>
-          <el-button 
-            type="success" 
-            :loading="translating" 
-            @click="handleTranslateNews"
-            :icon="Refresh"
-          >
-            AI翻译 ({{ untranslatedCount }})
-          </el-button>
           <el-button @click="refreshData" :icon="Refresh" :loading="loading">
             刷新
           </el-button>
@@ -33,42 +25,6 @@
 
     <!-- 主要内容区域 -->
     <el-main class="main-content">
-      <!-- 统计信息 -->
-      <el-row :gutter="20" class="stats-row">
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-item">
-              <div class="stat-number">{{ statistics.total_articles || 0 }}</div>
-              <div class="stat-label">总文章数</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-item">
-              <div class="stat-number">{{ statistics.translated_articles || 0 }}</div>
-              <div class="stat-label">已翻译</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-item">
-              <div class="stat-number">{{ statistics.untranslated_articles || 0 }}</div>
-              <div class="stat-label">待翻译</div>
-            </div>
-          </el-card>
-        </el-col>
-        <el-col :span="6">
-          <el-card class="stat-card">
-            <div class="stat-item">
-              <div class="stat-number">{{ statistics.total_sources || 0 }}</div>
-              <div class="stat-label">新闻源</div>
-            </div>
-          </el-card>
-        </el-col>
-      </el-row>
-
       <!-- 分类标签 -->
       <div class="category-bar">
         <el-tag
@@ -139,13 +95,11 @@ const newsStore = useNewsStore()
 const currentPage = ref(1)
 const pageSize = ref(50)
 const crawling = ref(false)
-const translating = ref(false)
 
 // 计算属性
 const articles = computed(() => newsStore.articles)
 const statistics = computed(() => newsStore.statistics)
 const loading = computed(() => newsStore.loading)
-const untranslatedCount = computed(() => statistics.value.untranslated_articles || 0)
 const hasMore = computed(() => {
   const currentCount = articles.value.length
   const totalCount = statistics.value.total_articles || 0
@@ -193,27 +147,6 @@ const handleCrawlNews = async () => {
   }
 }
 
-const handleTranslateNews = async () => {
-  translating.value = true
-  try {
-    const response = await fetch('/api/v1/ai/translate', {
-      method: 'POST'
-    })
-    
-    if (response.ok) {
-      const result = await response.json()
-      ElMessage.success(`翻译完成: ${result.results.success_count} 篇成功`)
-      await refreshData()
-    } else {
-      ElMessage.error('翻译失败')
-    }
-  } catch (error) {
-    ElMessage.error('翻译失败')
-  } finally {
-    translating.value = false
-  }
-}
-
 const handleArticleClick = (article) => {
   if (!article.id || article.id <= 0) {
     ElMessage.error('文章ID无效')
@@ -257,6 +190,8 @@ onMounted(async () => {
 }
 
 .header {
+  --el-header-height: auto;
+  height: auto;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
   padding: 0;
@@ -265,59 +200,61 @@ onMounted(async () => {
 
 .header-content {
   display: flex;
+  flex-wrap: wrap;
   justify-content: space-between;
   align-items: center;
-  height: 100%;
-  padding: 0 20px;
+  gap: 10px 12px;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 12px 16px;
+}
+
+.logo {
+  min-width: 0;
 }
 
 .logo h1 {
   margin: 0;
-  font-size: 24px;
+  font-size: 22px;
   font-weight: bold;
+  line-height: 1.2;
 }
 
 .subtitle {
-  font-size: 14px;
+  display: block;
+  font-size: 12px;
   opacity: 0.8;
-  margin-left: 10px;
+  margin-top: 2px;
 }
 
 .header-actions {
   display: flex;
-  gap: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.header-actions :deep(.el-button) {
+  margin: 0;
+}
+
+@media (max-width: 520px) {
+  .header-actions {
+    width: 100%;
+    margin-left: 0;
+  }
+
+  .header-actions :deep(.el-button) {
+    flex: 1 1 0;
+  }
 }
 
 .main-content {
-  padding: 20px;
+  padding: 16px;
   max-width: 1200px;
   margin: 0 auto;
-}
-
-.stats-row {
-  margin-bottom: 20px;
-}
-
-.stat-card {
-  text-align: center;
-  border: none;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.stat-item {
-  padding: 10px;
-}
-
-.stat-number {
-  font-size: 24px;
-  font-weight: bold;
-  color: #409eff;
-  margin-bottom: 5px;
-}
-
-.stat-label {
-  font-size: 14px;
-  color: #666;
 }
 
 .category-bar {
